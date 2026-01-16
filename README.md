@@ -1,16 +1,32 @@
 # ChatKit Todo Sample with Azure OpenAI
 
-A self-hosted ChatKit todo list application powered by Azure OpenAI, designed for deployment on Azure Container Apps.
+A self-hosted ChatKit todo list application powered by Azure OpenAI, featuring interactive widgets and a modular architecture designed for reuse and extension.
 
 ![Architecture Diagram](docs/architecture.png)
 
 ## 🎯 Features
 
-- **ChatKit Integration**: Uses OpenAI's ChatKit for a modern chat UI
+- **ChatKit Integration**: Uses OpenAI's ChatKit for a modern chat UI with interactive widgets
 - **Azure OpenAI**: Powered by Azure OpenAI with GPT-4o model
-- **Todo Management**: Natural language task management
+- **Interactive Widgets**: Rich UI with buttons, checkboxes, forms, and badges
+- **Modular Architecture**: Easily extend with new use cases
 - **Self-Hosted**: Full control over your data and infrastructure
 - **Azure Container Apps**: Cloud-native deployment with auto-scaling
+
+## 🤔 What is ChatKit?
+
+ChatKit is OpenAI's protocol for building **self-hosted chat applications** with rich, interactive UIs. Unlike traditional agent applications that only return text, ChatKit enables:
+
+| Standard Agent | ChatKit Application |
+|----------------|---------------------|
+| Text-only responses | Text + Interactive widgets |
+| One-way communication | Bidirectional (actions ↔ updates) |
+| Build your own UI | Pre-built UI components |
+| Request/response | Real-time streaming |
+
+**Important:** The ChatKit server is your **backend application**, not middleware. The agent logic, tools, and ChatKit server must be co-located in the same process for streaming to work correctly.
+
+For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 📁 Project Structure
 
@@ -18,13 +34,21 @@ A self-hosted ChatKit todo list application powered by Azure OpenAI, designed fo
 chatkit-sample/
 ├── main.py                  # FastAPI application entry point
 ├── config.py                # Configuration management
-├── chatkit_server.py        # ChatKit server implementation
+├── chatkit_server.py        # Todo ChatKit server (extends BaseChatKitServer)
+├── base_server.py           # Reusable base server with Azure OpenAI
 ├── azure_client.py          # Azure OpenAI client manager
 ├── store.py                 # SQLite data store
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Container build configuration
 ├── azure.yaml              # Azure Developer CLI configuration
+├── ARCHITECTURE.md         # Detailed architecture documentation
 ├── .env.example            # Environment variables template
+├── use_cases/              # Modular use case implementations
+│   └── todo/               # Todo list use case
+│       ├── agent.py        # Agent with tools
+│       ├── widgets.py      # Widget builders
+│       ├── actions.py      # Action handlers
+│       └── database.py     # Data persistence
 ├── static/
 │   └── index.html          # ChatKit frontend
 └── infra/
@@ -266,6 +290,85 @@ az role assignment create \
 - [Azure OpenAI Documentation](https://learn.microsoft.com/azure/ai-services/openai/)
 - [Azure Container Apps Documentation](https://learn.microsoft.com/azure/container-apps/)
 - [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
+
+## 🔄 Azure OpenAI vs Standard OpenAI
+
+This project uses **Azure OpenAI** instead of the standard OpenAI endpoints. Here are the key differences:
+
+### Configuration Changes
+
+| Aspect | Standard OpenAI | Azure OpenAI |
+|--------|-----------------|--------------|
+| **Endpoint** | `https://api.openai.com/v1` | `https://your-resource.openai.azure.com/` |
+| **Authentication** | API Key (`OPENAI_API_KEY`) | Azure AD / Managed Identity |
+| **Model Reference** | Model name (`gpt-4o`) | Deployment name (custom) |
+| **Client** | `AsyncOpenAI` | `AsyncAzureOpenAI` |
+
+### Code Changes Made
+
+1. **Azure Client Manager** (`azure_client.py`):
+   ```python
+   # Uses Azure-specific client with DefaultAzureCredential
+   from openai import AsyncAzureOpenAI
+   from azure.identity.aio import DefaultAzureCredential
+   
+   self.client = AsyncAzureOpenAI(
+       azure_endpoint=settings.azure_openai_endpoint,
+       azure_ad_token_provider=self._get_token,
+       api_version=settings.azure_openai_api_version,
+   )
+   ```
+
+2. **Model Wrapper** (`base_server.py`):
+   ```python
+   # Wraps Azure client for OpenAI Agents SDK
+   azure_model = OpenAIChatCompletionsModel(
+       model=settings.azure_openai_deployment,  # Deployment name, not model name
+       openai_client=client,
+   )
+   ```
+
+3. **Authentication**:
+   - Local: Uses `az login` credentials via Azure CLI
+   - Azure-hosted: Uses Managed Identity automatically
+   - No API keys required in code
+
+### Environment Variables
+
+```env
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o          # Your deployment name
+AZURE_OPENAI_API_VERSION=2025-01-01-preview
+
+# Note: No OPENAI_API_KEY needed - uses Azure AD authentication
+```
+
+### RBAC Requirements
+
+Grant your identity the `Cognitive Services OpenAI User` role:
+```bash
+az role assignment create \
+  --assignee <your-identity> \
+  --role "Cognitive Services OpenAI User" \
+  --scope /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<resource>
+```
+
+## 🧩 Extending with New Use Cases
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation on:
+- The modular use case pattern
+- How to create new agents with custom tools
+- Building interactive widgets
+- Handling widget actions
+
+### Quick Guide
+
+1. Create a new folder: `use_cases/my_use_case/`
+2. Define your agent with tools in `agent.py`
+3. Build widgets in `widgets.py`
+4. Handle actions in `actions.py`
+5. Extend `BaseChatKitServer` for your server
 
 ## 🤝 Contributing
 
