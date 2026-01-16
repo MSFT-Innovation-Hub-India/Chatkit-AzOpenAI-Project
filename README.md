@@ -24,9 +24,41 @@ ChatKit is OpenAI's protocol for building **self-hosted chat applications** with
 | Build your own UI | Pre-built UI components |
 | Request/response | Real-time streaming |
 
-**Important:** The ChatKit server is your **backend application**, not middleware. The agent logic, tools, and ChatKit server must be co-located in the same process for streaming to work correctly.
+### How Widget Rendering Works
 
-For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
+**Widgets are NOT HTML sent from the server.** The flow is:
+
+1. **Server** builds widget objects in Python (`Card`, `Button`, `Row`, etc.)
+2. **Server** streams widget as JSON over SSE (e.g., `{"type": "Button", "label": "Add"}`)
+3. **Client** JavaScript parses JSON and creates DOM elements
+4. **Browser** renders the final HTML
+
+```
+Server (Python)           Wire (JSON)              Client (JavaScript)
+─────────────────    ─────────────────────    ─────────────────────────
+Button(label="Add")  → {"type":"Button",...}  → <button>Add</button>
+```
+
+### Where is the UI Served From?
+
+In this project, **FastAPI serves both**:
+- `/chatkit` - The ChatKit API endpoint (streaming JSON)
+- `/` and `/static` - The frontend HTML/JS/CSS files
+
+```python
+# main.py serves the frontend
+@app.get("/")
+async def serve_frontend():
+    return FileResponse("static/index.html")
+
+app.mount("/static", StaticFiles(directory="static"))
+```
+
+**No separate web server is needed** for this vanilla HTML/JS implementation. If using React/Vue, you can either:
+- Build and copy to `static/` (simple)
+- Host frontend on CDN separately (production)
+
+For detailed architecture, deployment patterns, and React examples, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 📁 Project Structure
 

@@ -5,14 +5,15 @@ This document explains the modular architecture of this ChatKit sample project, 
 ## Table of Contents
 
 1. [What is ChatKit?](#what-is-chatkit)
-2. [Architecture Overview](#architecture-overview)
-3. [ChatKit Server: Middleware or Backend?](#chatkit-server-middleware-or-backend)
-4. [Production Deployment Patterns](#production-deployment-patterns)
-5. [Project Structure](#project-structure)
-6. [Core Components](#core-components)
-7. [How the Todo Use Case Works](#how-the-todo-use-case-works)
-8. [Creating a New Use Case](#creating-a-new-use-case)
-9. [Widget Reference](#widget-reference)
+2. [How Widget Rendering Works](#how-widget-rendering-works)
+3. [Architecture Overview](#architecture-overview)
+4. [ChatKit Server: Middleware or Backend?](#chatkit-server-middleware-or-backend)
+5. [Production Deployment Patterns](#production-deployment-patterns)
+6. [Project Structure](#project-structure)
+7. [Core Components](#core-components)
+8. [How the Todo Use Case Works](#how-the-todo-use-case-works)
+9. [Creating a New Use Case](#creating-a-new-use-case)
+10. [Widget Reference](#widget-reference)
 
 ---
 
@@ -73,6 +74,203 @@ ChatKit is OpenAI's protocol for building **self-hosted chat applications** with
 | **UI** | Build your own | Pre-built components |
 | **Streaming** | Optional | Built-in |
 | **State** | Manual | Thread-based |
+
+---
+
+## How Widget Rendering Works
+
+This is a crucial concept to understand: **widgets are NOT HTML sent from the server**. Instead:
+
+### The Widget Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  1. SERVER: Build Widget (Python)                                           │
+│                                                                             │
+│     widget = Card(                                                          │
+│         id="todo_widget",                                                   │
+│         children=[                                                          │
+│             Title(id="t1", value="My Todos", size="lg"),                    │
+│             Button(id="b1", label="Add", color="primary", ...)              │
+│         ]                                                                   │
+│     )                                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼ SSE Stream (JSON)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  2. WIRE FORMAT: JSON Widget Definition                                     │
+│                                                                             │
+│     {                                                                       │
+│       "type": "Card",                                                       │
+│       "id": "todo_widget",                                                  │
+│       "children": [                                                         │
+│         { "type": "Title", "id": "t1", "value": "My Todos", "size": "lg" }, │
+│         { "type": "Button", "id": "b1", "label": "Add", "color": "primary" }│
+│       ]                                                                     │
+│     }                                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼ JavaScript parses JSON
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  3. CLIENT: Render to HTML (JavaScript)                                     │
+│                                                                             │
+│     function renderWidgetComponent(component) {                             │
+│       switch (component.type.toLowerCase()) {                               │
+│         case 'title':                                                       │
+│           const h3 = document.createElement('h3');                          │
+│           h3.textContent = component.value;                                 │
+│           return h3;                                                        │
+│         case 'button':                                                      │
+│           const btn = document.createElement('button');                     │
+│           btn.textContent = component.label;                                │
+│           btn.onclick = () => handleWidgetAction(component.onClickAction);  │
+│           return btn;                                                       │
+│       }                                                                     │
+│     }                                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼ DOM elements created
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  4. BROWSER: Final HTML                                                     │
+│                                                                             │
+│     <div class="widget-card">                                               │
+│       <h3 class="widget-title lg">My Todos</h3>                             │
+│       <button class="widget-button primary">Add</button>                    │
+│     </div>                                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Points
+
+1. **Server sends JSON, not HTML** - Widgets are serialized as JSON objects with `type`, `id`, and properties
+2. **Client interprets JSON** - The frontend JavaScript has a renderer (`renderWidgetComponent`) that creates DOM elements
+3. **Widgets are part of the thread** - Widget data is streamed as thread events alongside text messages
+4. **Styling is client-side** - CSS classes are applied by the frontend based on widget properties
+
+### Where is the Frontend Served From?
+
+In this project, **FastAPI serves both the API and static files**:
+
+```python
+# main.py
+
+# Serve the ChatKit frontend (index.html)
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    return FileResponse("static/index.html")
+
+# Serve static assets (JS, CSS, images)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ChatKit API endpoint
+@app.post("/chatkit")
+async def chatkit_endpoint(request: Request):
+    result = await server.process(body, {})
+    return StreamingResponse(result, media_type="text/event-stream")
+```
+
+### Do You Need a Separate Web Server?
+
+| Scenario | Separate Server Needed? | Recommendation |
+|----------|------------------------|----------------|
+| **This sample (vanilla HTML/JS)** | ❌ No | FastAPI serves `static/index.html` directly |
+| **React/Vue/Angular SPA** | ⚠️ Optional | Can be served by FastAPI, or use CDN for better caching |
+| **Production with CDN** | ✅ Yes (recommended) | Static assets on CDN, API on containers |
+| **Next.js / SSR frameworks** | ✅ Yes | Needs Node.js server for SSR |
+
+### React/Vue Implementation Pattern
+
+If using React or another framework:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     OPTION 1: Single Server (Simple)                        │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │                    FastAPI Container                                │   │
+│   │  ┌──────────────────────┐  ┌─────────────────────────────────────┐  │   │
+│   │  │  /chatkit endpoint   │  │  /static (React build output)       │  │   │
+│   │  │  (ChatKit API)       │  │  - index.html                       │  │   │
+│   │  │                      │  │  - bundle.js (widget renderer)      │  │   │
+│   │  │                      │  │  - styles.css                       │  │   │
+│   │  └──────────────────────┘  └─────────────────────────────────────┘  │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│   Build: npm run build → copy dist/ to static/                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 OPTION 2: Separate Hosting (Production)                     │
+│                                                                             │
+│   ┌─────────────────────────────┐     ┌─────────────────────────────────┐   │
+│   │  CDN / Static Hosting       │     │  Container (Azure, AWS, etc.)   │   │
+│   │  (Vercel, Cloudflare, S3)   │     │                                 │   │
+│   │                             │     │  ┌───────────────────────────┐  │   │
+│   │  - index.html               │────►│  │  /chatkit endpoint        │  │   │
+│   │  - bundle.js (React app)    │ API │  │  (ChatKit Server + Agent) │  │   │
+│   │  - Widget renderer code     │     │  └───────────────────────────┘  │   │
+│   └─────────────────────────────┘     └─────────────────────────────────┘   │
+│                                                                             │
+│   Pros: Global CDN caching, independent deployments                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### The Widget Renderer is Client-Side
+
+The critical piece is the **widget renderer** - JavaScript code that converts JSON to DOM:
+
+```javascript
+// This is what makes widgets work - must be in your frontend code
+function renderWidgetComponent(component) {
+    const type = component.type.toLowerCase();
+    
+    switch (type) {
+        case 'card':
+            const card = document.createElement('div');
+            card.className = 'widget-card';
+            for (const child of component.children) {
+                card.appendChild(renderWidgetComponent(child));
+            }
+            return card;
+            
+        case 'button':
+            const btn = document.createElement('button');
+            btn.textContent = component.label;
+            btn.className = `widget-button ${component.color}`;
+            btn.onclick = () => handleWidgetAction(component.onClickAction);
+            return btn;
+            
+        // ... other component types
+    }
+}
+```
+
+If you use React, you'd write this as React components:
+
+```jsx
+// React equivalent
+function WidgetRenderer({ component }) {
+  switch (component.type.toLowerCase()) {
+    case 'card':
+      return (
+        <div className="widget-card">
+          {component.children.map(child => 
+            <WidgetRenderer key={child.id} component={child} />
+          )}
+        </div>
+      );
+    case 'button':
+      return (
+        <button 
+          className={`widget-button ${component.color}`}
+          onClick={() => handleWidgetAction(component.onClickAction)}
+        >
+          {component.label}
+        </button>
+      );
+  }
+}
+```
 
 ---
 
@@ -389,10 +587,10 @@ class TodoChatKitServer(BaseChatKitServer):
 User Message
      │
      ▼
-┌─────────────────┐
-│  TodoChatKitServer.respond()  │
+┌──────────────────────────────────────┐
+│  TodoChatKitServer.respond()         │
 │  (inherited from BaseChatKitServer)  │
-└─────────────────┘
+└──────────────────────────────────────┘
      │
      ▼
 ┌─────────────────┐
@@ -406,9 +604,9 @@ User Message
 └─────────────────┘
      │
      ▼
-┌─────────────────┐
+┌───────────────────────┐
 │  post_respond_hook()  │ ──► build_todo_widget() → stream_widget()
-└─────────────────┘
+└───────────────────────┘
      │
      ▼
 Widget Streamed to Client
@@ -423,25 +621,188 @@ User Clicks Button/Checkbox
 Frontend sends: threads.custom_action
      │
      ▼
-┌─────────────────┐
+┌──────────────────────────────┐
 │  TodoChatKitServer.action()  │
-└─────────────────┘
+└──────────────────────────────┘
      │
      ▼
-┌─────────────────┐
-│  Update Database  │
+┌───────────────────────────────┐
+│  Update Database              │
 │  (data_store.add_todo, etc.)  │
-└─────────────────┘
+└───────────────────────────────┘
      │
      ▼
-┌─────────────────┐
+┌───────────────────────┐
 │  build_todo_widget()  │
 │  stream_widget()      │
-└─────────────────┘
+└───────────────────────┘
      │
      ▼
 Updated Widget Streamed to Client
 ```
+
+### How Widget Actions Work (Detailed)
+
+This section explains the complete journey of a button click from the UI to your server handler.
+
+#### Step 1: Define Action in Widget (Python)
+
+When building a widget, you attach an `ActionConfig` to interactive elements:
+
+```python
+# use_cases/todo/widgets.py
+Button(
+    id="add_button",
+    label="➕ Add",
+    onClickAction=ActionConfig(
+        type="add_todo_form",      # Your custom action identifier
+        handler="server",          # Route to server (always "server")
+        payload={"priority": "high"}  # Optional static data
+    )
+)
+```
+
+#### Step 2: Serialized to JSON (Wire Format)
+
+The widget is serialized and streamed to the client:
+
+```json
+{
+  "type": "Button",
+  "id": "add_button", 
+  "label": "➕ Add",
+  "onClickAction": {
+    "type": "add_todo_form",
+    "handler": "server",
+    "payload": {"priority": "high"}
+  }
+}
+```
+
+#### Step 3: Client Renders and Attaches Handler (JavaScript)
+
+The frontend creates the button and stores the action config:
+
+```javascript
+// static/index.html
+case 'button':
+    const btn = document.createElement('button');
+    btn.textContent = component.label;
+    btn.onclick = () => handleWidgetAction(
+        component.onClickAction,  // Stored action config
+        component.id
+    );
+    return btn;
+```
+
+#### Step 4: User Clicks → Client Sends Action
+
+When clicked, the client collects form data and sends to server:
+
+```javascript
+// static/index.html
+async function handleWidgetAction(action, componentId) {
+    // Collect form data if button is inside a form
+    const formData = collectFormData(componentId);  // {todo_text: "Buy milk"}
+    
+    // Merge form data with action payload
+    const payload = { ...action.payload, ...formData };
+    // Result: {priority: "high", todo_text: "Buy milk"}
+    
+    // Send via ChatKit protocol
+    await fetch('/chatkit', {
+        method: 'POST',
+        body: JSON.stringify({
+            type: "threads.custom_action",  // ChatKit protocol message
+            params: {
+                thread_id: currentThreadId,
+                item_id: widgetId,
+                action: {
+                    type: "add_todo_form",    // Your action type
+                    payload: payload          // Merged data
+                }
+            }
+        })
+    });
+}
+```
+
+#### Step 5: ChatKit Routes to Your Handler
+
+The ChatKit library parses the request and calls your `action()` method:
+
+```python
+# ChatKit library internal (you don't write this)
+if request.type == "threads.custom_action":
+    await your_server.action(thread, action, sender, context)
+```
+
+#### Step 6: Your Action Handler (Your Code)
+
+You implement the business logic:
+
+```python
+# chatkit_server.py - YOU write this
+async def action(self, thread, action, sender, context):
+    action_type = action.type    # "add_todo_form"
+    payload = action.payload     # {"priority": "high", "todo_text": "Buy milk"}
+    
+    if action_type == "add_todo_form":
+        todo_text = payload.get("todo_text", "").strip()
+        if todo_text:
+            await self.data_store.add_todo(thread.id, todo_text)
+    
+    elif action_type == "delete_todo":
+        todo_id = payload.get("todo_id")
+        await self.data_store.delete_todo(thread.id, todo_id)
+    
+    # Stream updated widget back to client
+    todos = await self.data_store.list_todos(thread.id)
+    widget = build_todo_widget(todos, thread.id)
+    async for event in stream_widget(thread, widget):
+        yield event
+```
+
+#### Key Insight: Agent is NOT Involved
+
+**Actions bypass the LLM entirely.** This is crucial to understand:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  TEXT MESSAGE FLOW (uses Agent/LLM)                                         │
+│                                                                             │
+│  User types: "Add buy milk"                                                 │
+│       │                                                                     │
+│       ▼                                                                     │
+│  respond() → Agent → LLM → Tool call (add_todo) → Widget                    │
+│                  ▲                                                          │
+│                  │ $$$  LLM tokens consumed                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  WIDGET ACTION FLOW (NO Agent/LLM)                                          │
+│                                                                             │
+│  User clicks: [Add] button                                                  │
+│       │                                                                     │
+│       ▼                                                                     │
+│  action() → Your code → Database → Widget                                   │
+│                                                                             │
+│  ✓ No LLM call                                                              │
+│  ✓ No token cost                                                            │
+│  ✓ Instant response                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Summary: Action Components
+
+| Component | Location | Role |
+|-----------|----------|------|
+| `ActionConfig` | `widgets.py` | Defines action type and static payload |
+| `onClickAction` | JSON wire format | Carried to client with widget |
+| `handleWidgetAction` | `index.html` (JS) | Collects form data, sends request |
+| `threads.custom_action` | ChatKit protocol | Request type that routes to `action()` |
+| `action()` method | `chatkit_server.py` | **Your handler** - all business logic |
+| Agent/LLM | N/A | **NOT used** for widget actions |
 
 ## Creating a New Use Case
 
