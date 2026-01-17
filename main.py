@@ -17,7 +17,10 @@ from chatkit.server import StreamingResult
 
 from config import settings
 from store import SQLiteStore
-from chatkit_server import TodoChatKitServer
+
+# Import the use-case specific ChatKit server
+# Each use case provides its own server - swap this import for a different use case
+from use_cases.todo import TodoChatKitServer
 
 # Configure logging
 logging.basicConfig(

@@ -1,8 +1,12 @@
 """
 Todo ChatKit Server Implementation.
 
-This is a specialized ChatKit server for the todo list use case.
-It extends BaseChatKitServer and delegates to the modular todo use case components.
+This is the ChatKit server for the todo list use case.
+It extends BaseChatKitServer and integrates all todo-specific components.
+
+Location: use_cases/todo/server.py
+- Lives alongside other todo modules (agent.py, widgets.py, actions.py)
+- Each use case should have its own server.py
 """
 
 import logging
@@ -16,7 +20,9 @@ from agents import Agent
 
 from base_server import BaseChatKitServer
 from store import SQLiteStore
-from use_cases.todo import create_todo_agent, build_todo_widget
+
+from .agent import create_todo_agent
+from .widgets import build_todo_widget
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +37,10 @@ class TodoChatKitServer(BaseChatKitServer):
     - Handles widget actions (form submissions, button clicks, checkboxes)
     
     To create a similar server for a different use case:
-    1. Create your use case module under use_cases/
-    2. Define your agent, widgets, and action handlers
+    1. Create your use case module under use_cases/your_use_case/
+    2. Copy this structure: agent.py, widgets.py, actions.py, server.py
     3. Extend BaseChatKitServer and implement get_agent(), action(), post_respond_hook()
+    4. Update main.py to import and use your server
     """
     
     def __init__(self, data_store: SQLiteStore):
@@ -63,7 +70,7 @@ class TodoChatKitServer(BaseChatKitServer):
         The todo agent tools set _show_todo_widget=True on the context
         when they want to display the updated todo list.
         
-        As a fallback, we also check if any todo-related tool was called.
+        As a fallback, we also fetch and show todos after any response.
         """
         show_widget = getattr(agent_context, '_show_todo_widget', False)
         todos_from_context = getattr(agent_context, '_todos', None)
@@ -99,7 +106,7 @@ class TodoChatKitServer(BaseChatKitServer):
         
         Supported actions:
         - add_todo_form: Add a new todo from form submission
-        - complete_todo: Toggle todo completion status
+        - complete_todo: Mark a todo as complete
         - delete_todo: Remove a todo item
         - toggle_todo: Toggle checkbox state
         """

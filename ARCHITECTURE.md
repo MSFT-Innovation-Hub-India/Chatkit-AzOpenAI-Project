@@ -495,15 +495,15 @@ Multiple use cases, shared infrastructure:
 ```
 chatkit-sample/
 ├── main.py                 # FastAPI application entry point + branding API
-├── chatkit_server.py       # Todo-specific ChatKit server (extends BaseChatKitServer)
 ├── base_server.py          # Reusable base server with Azure OpenAI integration
 ├── azure_client.py         # Azure OpenAI client management
 ├── config.py               # Environment configuration (Azure + branding settings)
 ├── store.py                # SQLite data store (threads + GLOBAL todos)
-├── use_cases/              # Use case modules
+├── use_cases/              # Use case modules (each is self-contained)
 │   ├── __init__.py         # Package exports
 │   └── todo/               # Todo list use case
-│       ├── __init__.py     # Public exports
+│       ├── __init__.py     # Exports TodoChatKitServer + components
+│       ├── server.py       # TodoChatKitServer (extends BaseChatKitServer)
 │       ├── agent.py        # Agent definition with tools
 │       ├── widgets.py      # Widget builders
 │       ├── actions.py      # Action handlers

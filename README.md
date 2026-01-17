@@ -68,7 +68,6 @@ For detailed architecture, deployment patterns, and React examples, see [ARCHITE
 chatkit-sample/
 ├── main.py                  # FastAPI application entry point
 ├── config.py                # Configuration management (incl. branding)
-├── chatkit_server.py        # Todo ChatKit server (extends BaseChatKitServer)
 ├── base_server.py           # Reusable base server with Azure OpenAI
 ├── azure_client.py          # Azure OpenAI client manager
 ├── store.py                 # SQLite data store (global todos)
@@ -78,7 +77,9 @@ chatkit-sample/
 ├── ARCHITECTURE.md         # Detailed architecture documentation
 ├── .env.example            # Environment variables template
 ├── use_cases/              # Modular use case implementations
-│   └── todo/               # Todo list use case
+│   └── todo/               # Todo list use case (complete module)
+│       ├── __init__.py     # Exports TodoChatKitServer
+│       ├── server.py       # ChatKit server for this use case
 │       ├── agent.py        # Agent with tools
 │       ├── widgets.py      # Widget builders
 │       ├── actions.py      # Action handlers
