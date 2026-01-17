@@ -62,13 +62,30 @@ class TodoChatKitServer(BaseChatKitServer):
         
         The todo agent tools set _show_todo_widget=True on the context
         when they want to display the updated todo list.
+        
+        As a fallback, we also check if any todo-related tool was called.
         """
-        if getattr(agent_context, '_show_todo_widget', False):
-            todos = getattr(agent_context, '_todos', [])
-            widget = build_todo_widget(todos, thread.id)
-            logger.info(f"Streaming todo widget with {len(todos)} items")
+        show_widget = getattr(agent_context, '_show_todo_widget', False)
+        todos_from_context = getattr(agent_context, '_todos', None)
+        
+        logger.info(f"post_respond_hook: thread={thread.id}, show_widget={show_widget}")
+        
+        if show_widget and todos_from_context is not None:
+            # Use the todos already fetched by the tool
+            widget = build_todo_widget(todos_from_context, thread.id)
+            logger.info(f"Streaming todo widget with {len(todos_from_context)} items (from tool)")
             async for event in stream_widget(thread, widget):
                 yield event
+        else:
+            # Fallback: Always fetch and show todos after any response
+            # This ensures the widget appears even if the LLM doesn't call the tool
+            todos = await self.data_store.list_todos(thread.id)
+            logger.info(f"Fallback: Fetching todos directly, found {len(todos)} items")
+            if todos or show_widget:
+                widget = build_todo_widget(todos, thread.id)
+                logger.info(f"Streaming todo widget with {len(todos)} items (fallback)")
+                async for event in stream_widget(thread, widget):
+                    yield event
     
     async def action(
         self,

@@ -315,6 +315,101 @@ az role assignment create \
 | `APP_PORT` | Application port | `8000` |
 | `DATA_STORE_PATH` | SQLite database path | `./data/chatkit.db` |
 | `LOG_LEVEL` | Logging level | `INFO` |
+| `BRAND_NAME` | App title in header | `ChatKit Todo` |
+| `BRAND_TAGLINE` | Subtitle in header | `AI-Powered Task Management` |
+| `BRAND_LOGO_URL` | Logo image URL | `/static/logo.png` |
+| `BRAND_PRIMARY_COLOR` | Primary brand color (hex) | `#0078d4` |
+| `BRAND_FAVICON_URL` | Favicon URL | `/static/favicon.ico` |
+
+## 🎨 Branding & Customization
+
+Customize the UI to match your organization's brand identity.
+
+### Environment Variables
+
+The easiest way to customize branding is through environment variables in your `.env` file:
+
+```env
+# Branding Configuration
+BRAND_NAME=My Company Assistant
+BRAND_TAGLINE=Your AI-Powered Helper
+BRAND_LOGO_URL=/static/my-logo.png
+BRAND_PRIMARY_COLOR=#ff6600
+BRAND_FAVICON_URL=/static/my-favicon.ico
+```
+
+### Adding Your Logo
+
+1. **Add your logo file** to the `static/` directory:
+   ```
+   static/
+   ├── logo.png          # Your company logo (recommended: 32x32 or 40x40px)
+   ├── favicon.ico       # Browser favicon
+   └── index.html
+   ```
+
+2. **Update environment variables**:
+   ```env
+   BRAND_LOGO_URL=/static/logo.png
+   BRAND_FAVICON_URL=/static/favicon.ico
+   ```
+
+3. **External logos** are also supported:
+   ```env
+   BRAND_LOGO_URL=https://mycompany.com/logo.png
+   ```
+
+### CSS Theme Customization
+
+For advanced customization, edit `static/branding.css`:
+
+```css
+:root {
+    /* Primary brand color - affects buttons, links, accents */
+    --brand-primary: #0078d4;
+    
+    /* Header gradient */
+    --header-gradient-start: #1a1a2e;
+    --header-gradient-end: #16213e;
+    
+    /* Background colors */
+    --background-primary: #0f0f23;
+    --background-secondary: #1a1a2e;
+    
+    /* Text colors */
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0b0;
+    
+    /* Logo dimensions */
+    --logo-width: 32px;
+    --logo-height: 32px;
+}
+```
+
+### Example Brand Themes
+
+The `branding.css` file includes commented examples for popular brands:
+
+- **Microsoft** - Blue primary (#0078d4)
+- **GitHub** - Purple primary (#8b5cf6)
+- **Slack** - Green primary (#4a154b)
+- **Salesforce** - Blue primary (#00a1e0)
+
+### API Endpoint
+
+Branding configuration is served at `/api/branding`:
+
+```json
+{
+    "name": "ChatKit Todo",
+    "tagline": "AI-Powered Task Management",
+    "logoUrl": "/static/logo.png",
+    "primaryColor": "#0078d4",
+    "faviconUrl": "/static/favicon.ico"
+}
+```
+
+This allows frontend applications (including React/Vue) to dynamically load branding at runtime.
 
 ## 📚 Resources
 

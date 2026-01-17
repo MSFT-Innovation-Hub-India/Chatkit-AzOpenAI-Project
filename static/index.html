@@ -4,20 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChatKit Todo - Your AI-Powered Todo List</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    
+    <!-- Branding CSS - customize this file for your brand -->
+    <link rel="stylesheet" href="/static/branding.css">
     
     <style>
+        /* Map branding variables to component variables */
         :root {
-            --primary-color: #0078d4;
-            --primary-hover: #106ebe;
-            --success-color: #28a745;
-            --warning-color: #ffc107;
-            --danger-color: #dc3545;
-            --secondary-color: #6c757d;
-            --background-color: #f5f5f5;
-            --surface-color: #ffffff;
-            --text-color: #333333;
-            --text-secondary: #666666;
-            --border-color: #e0e0e0;
+            --primary-color: var(--brand-primary, #0078d4);
+            --primary-hover: var(--brand-primary-hover, #106ebe);
+            --success-color: var(--color-success, #28a745);
+            --warning-color: var(--color-warning, #ffc107);
+            --danger-color: var(--color-danger, #dc3545);
+            --secondary-color: var(--color-secondary, #6c757d);
+            --background-color: var(--background-page, #f5f5f5);
+            --surface-color: var(--background-surface, #ffffff);
+            --text-color: var(--text-primary, #333333);
+            --text-secondary: var(--text-secondary, #666666);
+            --border-color: var(--border-color, #e0e0e0);
         }
         
         * {
@@ -36,8 +41,8 @@
         
         /* Header */
         .header {
-            background: linear-gradient(135deg, var(--primary-color), #005a9e);
-            color: white;
+            background: linear-gradient(135deg, var(--header-gradient-start, var(--primary-color)), var(--header-gradient-end, #005a9e));
+            color: var(--text-on-primary, white);
             padding: 16px 24px;
             display: flex;
             align-items: center;
@@ -45,9 +50,35 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         }
         
-        .header-logo { font-size: 28px; }
+        .header-logo { 
+            font-size: 28px; 
+        }
+        .header-logo img {
+            width: var(--logo-width, 32px);
+            height: var(--logo-height, 32px);
+            border-radius: var(--logo-border-radius, 6px);
+            object-fit: contain;
+        }
+        .header-logo-emoji {
+            font-size: 28px;
+        }
         .header-title { font-size: 20px; font-weight: 600; }
         .header-subtitle { font-size: 14px; opacity: 0.9; margin-left: auto; }
+        
+        .new-chat-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .new-chat-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
         
         /* Main content area */
         .main-content {
@@ -451,9 +482,12 @@
 </head>
 <body>
     <header class="header">
-        <span class="header-logo">✅</span>
-        <span class="header-title">ChatKit Todo</span>
-        <span class="header-subtitle">Powered by Azure OpenAI + ChatKit Widgets</span>
+        <span class="header-logo" id="header-logo">
+            <span class="header-logo-emoji">✅</span>
+        </span>
+        <span class="header-title" id="header-title">ChatKit Todo</span>
+        <button class="new-chat-btn" onclick="startNewChat()" title="Start a new conversation">🔄 New Chat</button>
+        <span class="header-subtitle" id="header-subtitle">Powered by Azure OpenAI + ChatKit Widgets</span>
     </header>
     
     <div class="main-content">
@@ -509,13 +543,78 @@
     </div>
     
     <script>
-        let threadId = 'thread_' + Math.random().toString(36).substr(2, 9);
+        // Persist thread ID in localStorage so todos survive page refresh
+        let threadId = localStorage.getItem('chatkit_thread_id');
+        if (!threadId) {
+            threadId = 'thread_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('chatkit_thread_id', threadId);
+        }
+        console.log('Using thread ID:', threadId);
+        
         let isProcessing = false;
         let currentWidgetContainer = null;
+        
+        // Start a new chat session with a fresh thread ID
+        function startNewChat() {
+            threadId = 'thread_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('chatkit_thread_id', threadId);
+            console.log('Started new chat with thread ID:', threadId);
+            
+            // Clear the messages container and show welcome message
+            const messagesContainer = document.getElementById('messages');
+            messagesContainer.innerHTML = `
+                <div class="welcome">
+                    <h2>👋 Welcome to ChatKit Todo!</h2>
+                    <p>I'm your AI-powered todo assistant with interactive widgets.<br>
+                    Ask me to show your todos to see the magic! ✨</p>
+                </div>
+            `;
+            currentWidgetContainer = null;
+        }
         
         const messagesContainer = document.getElementById('messages');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
+        
+        // Load branding configuration from server
+        async function loadBranding() {
+            try {
+                const response = await fetch('/api/branding');
+                if (response.ok) {
+                    const branding = await response.json();
+                    
+                    // Update page title
+                    document.title = `${branding.name} - ${branding.tagline}`;
+                    
+                    // Update header title
+                    document.getElementById('header-title').textContent = branding.name;
+                    document.getElementById('header-subtitle').textContent = branding.tagline;
+                    
+                    // Update logo if provided
+                    if (branding.logoUrl && branding.logoUrl !== '/static/logo.png') {
+                        const logoContainer = document.getElementById('header-logo');
+                        logoContainer.innerHTML = `<img src="${branding.logoUrl}" alt="${branding.name} logo" onerror="this.parentElement.innerHTML='<span class=\\'header-logo-emoji\\'>✅</span>'">`;
+                    }
+                    
+                    // Update primary color dynamically
+                    if (branding.primaryColor) {
+                        document.documentElement.style.setProperty('--brand-primary', branding.primaryColor);
+                        document.documentElement.style.setProperty('--header-gradient-start', branding.primaryColor);
+                    }
+                    
+                    // Update favicon
+                    if (branding.faviconUrl) {
+                        const favicon = document.querySelector('link[rel="icon"]');
+                        if (favicon) favicon.href = branding.faviconUrl;
+                    }
+                }
+            } catch (error) {
+                console.log('Using default branding');
+            }
+        }
+        
+        // Load branding on page load
+        loadBranding();
         
         // Auto-resize textarea
         messageInput.addEventListener('input', function() {

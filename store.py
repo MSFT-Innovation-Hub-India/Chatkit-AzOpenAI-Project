@@ -329,8 +329,12 @@ class SQLiteStore(Store):
             await db.commit()
     
     # Todo-specific methods
+    # Note: Todos are GLOBAL (not tied to thread_id) because they represent user data,
+    # not conversation state. The thread_id parameter is kept for API compatibility
+    # but is ignored for queries (only stored for reference).
+    
     async def add_todo(self, thread_id: str, title: str) -> Dict[str, Any]:
-        """Add a todo item for a thread."""
+        """Add a todo item (global, not thread-specific)."""
         db = await self._ensure_db()
         now = datetime.now(timezone.utc).isoformat()
         todo_id = f"todo_{uuid.uuid4().hex[:12]}"
@@ -350,19 +354,19 @@ class SQLiteStore(Store):
         }
     
     async def complete_todo(self, thread_id: str, todo_id: str) -> Optional[Dict[str, Any]]:
-        """Mark a todo as completed."""
+        """Mark a todo as completed (global lookup by todo_id only)."""
         db = await self._ensure_db()
         now = datetime.now(timezone.utc).isoformat()
         
         async with self._lock:
             await db.execute(
-                "UPDATE todos SET completed = 1, updated_at = ? WHERE id = ? AND thread_id = ?",
-                (now, todo_id, thread_id)
+                "UPDATE todos SET completed = 1, updated_at = ? WHERE id = ?",
+                (now, todo_id)
             )
             await db.commit()
         
         async with db.execute(
-            "SELECT * FROM todos WHERE id = ? AND thread_id = ?", (todo_id, thread_id)
+            "SELECT * FROM todos WHERE id = ?", (todo_id,)
         ) as cursor:
             row = await cursor.fetchone()
             if row:
@@ -375,23 +379,23 @@ class SQLiteStore(Store):
         return None
     
     async def delete_todo(self, thread_id: str, todo_id: str) -> bool:
-        """Delete a todo item."""
+        """Delete a todo item (global lookup by todo_id only)."""
         db = await self._ensure_db()
         
         async with self._lock:
             cursor = await db.execute(
-                "DELETE FROM todos WHERE id = ? AND thread_id = ?", (todo_id, thread_id)
+                "DELETE FROM todos WHERE id = ?", (todo_id,)
             )
             await db.commit()
             return cursor.rowcount > 0
     
     async def list_todos(self, thread_id: str) -> List[Dict[str, Any]]:
-        """List all todos for a thread."""
+        """List ALL todos (global, ignores thread_id)."""
         db = await self._ensure_db()
         
         todos = []
         async with db.execute(
-            "SELECT * FROM todos WHERE thread_id = ? ORDER BY created_at ASC", (thread_id,)
+            "SELECT * FROM todos ORDER BY created_at ASC"
         ) as cursor:
             rows = await cursor.fetchall()
             for row in rows:

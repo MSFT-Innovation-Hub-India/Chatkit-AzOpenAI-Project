@@ -54,6 +54,33 @@ class Settings(BaseSettings):
         description="Logging level"
     )
     
+    # Branding Configuration
+    brand_name: str = Field(
+        default="ChatKit Todo",
+        alias="BRAND_NAME",
+        description="Application name shown in header"
+    )
+    brand_tagline: str = Field(
+        default="AI-Powered Task Management",
+        alias="BRAND_TAGLINE",
+        description="Tagline shown in header"
+    )
+    brand_logo_url: str = Field(
+        default="/static/logo.svg",
+        alias="BRAND_LOGO_URL",
+        description="URL to logo image (32x32 recommended)"
+    )
+    brand_primary_color: str = Field(
+        default="#0078d4",
+        alias="BRAND_PRIMARY_COLOR",
+        description="Primary brand color (hex)"
+    )
+    brand_favicon_url: str = Field(
+        default="/static/favicon.ico",
+        alias="BRAND_FAVICON_URL",
+        description="URL to favicon"
+    )
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -79,6 +79,7 @@ async def list_todos(ctx: RunContextWrapper["TodoContext"]) -> str:
     # Mark that we should show widget after response
     ctx.context._show_todo_widget = True
     ctx.context._todos = todos
+    logger.info(f"list_todos: Set _show_todo_widget=True on context (id={id(ctx.context)}), todos={len(todos)}")
     
     if not todos:
         return "Your todo list is empty. I'll show you a form to add new items!"
@@ -92,21 +93,28 @@ async def list_todos(ctx: RunContextWrapper["TodoContext"]) -> str:
 
 TODO_AGENT_INSTRUCTIONS = """You are a helpful todo list assistant. You help users manage their tasks and stay organized.
 
-Your capabilities:
-- Add new todo items when users ask
-- Mark todos as completed when users finish tasks  
-- Delete todos that are no longer needed
-- List all todos to show the current state with an interactive widget
+CRITICAL RULES - YOU MUST FOLLOW THESE:
 
-IMPORTANT: When users ask to add todos, ALWAYS use the add_todo tool immediately with the item they specify. Do NOT ask for clarification unless they literally said nothing about what to add.
+1. **ALWAYS USE TOOLS** - Never respond to todo-related requests without calling a tool first.
 
-When users want to complete a todo, use the complete_todo tool with the todo ID.
-When users want to delete a todo, use the delete_todo tool with the todo ID.
-When users want to see their todos (e.g., "show todos", "list todos", "my tasks"), use the list_todos tool.
+2. **For ANY request to see/show/list/view todos**: ALWAYS call list_todos tool FIRST, even if you think you know what's there. The widget only displays when you call the tool.
 
-After EVERY tool call, an interactive widget will be displayed showing the current todos with buttons and checkboxes.
+3. **For adding todos**: ALWAYS call add_todo immediately. Don't ask for clarification unless the user said nothing about what to add.
 
-Keep text responses very brief since the widget shows all the details. Use emojis occasionally."""
+4. **For completing todos**: Use complete_todo with the todo ID.
+
+5. **For deleting todos**: Use delete_todo with the todo ID.
+
+TRIGGER WORDS that REQUIRE calling list_todos:
+- "show" (show todos, show me, show my list)
+- "list" (list todos, list my tasks)  
+- "view" (view todos, view my list)
+- "see" (let me see, can I see)
+- "what" (what's on my list, what todos)
+- "display" (display todos)
+- "todos" (my todos, the todos)
+
+After you call a tool, an interactive widget will automatically appear. Keep your text response VERY brief (1 line) since the widget shows all details."""
 
 
 def create_todo_agent() -> Agent["TodoContext"]:

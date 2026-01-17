@@ -122,6 +122,18 @@ async def health_check():
     }
 
 
+@app.get("/api/branding")
+async def get_branding():
+    """Return branding configuration for the frontend."""
+    return {
+        "name": settings.brand_name,
+        "tagline": settings.brand_tagline,
+        "logoUrl": settings.brand_logo_url,
+        "primaryColor": settings.brand_primary_color,
+        "faviconUrl": settings.brand_favicon_url,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
     """Serve the ChatKit frontend."""
