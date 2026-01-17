@@ -494,12 +494,12 @@ Multiple use cases, shared infrastructure:
 
 ```
 chatkit-sample/
-├── main.py                 # FastAPI application entry point
+├── main.py                 # FastAPI application entry point + branding API
 ├── chatkit_server.py       # Todo-specific ChatKit server (extends BaseChatKitServer)
 ├── base_server.py          # Reusable base server with Azure OpenAI integration
 ├── azure_client.py         # Azure OpenAI client management
-├── config.py               # Environment configuration (Azure settings)
-├── store.py                # SQLite data store for threads and messages
+├── config.py               # Environment configuration (Azure + branding settings)
+├── store.py                # SQLite data store (threads + GLOBAL todos)
 ├── use_cases/              # Use case modules
 │   ├── __init__.py         # Package exports
 │   └── todo/               # Todo list use case
@@ -507,10 +507,68 @@ chatkit-sample/
 │       ├── agent.py        # Agent definition with tools
 │       ├── widgets.py      # Widget builders
 │       ├── actions.py      # Action handlers
-│       └── database.py     # Todo-specific database operations
-└── static/
-    └── index.html          # ChatKit frontend
+│       └── database.py     # Todo-specific database operations (legacy)
+├── static/
+│   ├── index.html          # ChatKit frontend with session management
+│   ├── branding.css        # Customizable brand colors/styles
+│   └── logo.svg            # Default logo (replaceable)
+└── infra/
+    ├── main.bicep          # Azure infrastructure as code
+    └── main.parameters.json
 ```
+
+## Data Architecture: Threads vs. Global Data
+
+Understanding the difference between **thread-scoped** and **global** data is crucial:
+
+### Thread-Scoped Data (Conversation Context)
+- **Chat messages**: Each conversation thread has its own message history
+- **Thread metadata**: Title, timestamps, status per conversation
+- **Purpose**: Enables multiple independent conversations
+
+### Global Data (User/Application State)
+- **Todos**: Stored globally, visible across ALL conversations
+- **Purpose**: User's task list persists regardless of which chat thread they're in
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           DATA ARCHITECTURE                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Thread A (conversation 1)        Thread B (conversation 2)                 │
+│  ┌─────────────────────┐          ┌─────────────────────┐                   │
+│  │ Message 1           │          │ Message 1           │                   │
+│  │ Message 2           │          │ Message 2           │                   │
+│  │ Message 3           │          │ ...                 │                   │
+│  └─────────────────────┘          └─────────────────────┘                   │
+│            │                                │                               │
+│            └────────────┬───────────────────┘                               │
+│                         ▼                                                   │
+│              ┌─────────────────────┐                                        │
+│              │   GLOBAL TODOS      │  ◄── Same todos visible in both       │
+│              │   ☑ Buy groceries   │      threads                           │
+│              │   ☐ Call mom        │                                        │
+│              │   ☐ Finish report   │                                        │
+│              └─────────────────────┘                                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Session Management
+
+The frontend uses `localStorage` to persist the thread ID across page refreshes:
+
+```javascript
+// Thread ID persists in browser localStorage
+let threadId = localStorage.getItem('chatkit_thread_id');
+if (!threadId) {
+    threadId = 'thread_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('chatkit_thread_id', threadId);
+}
+```
+
+- **Page refresh**: Same thread, conversation history preserved
+- **"New Chat" button**: Creates new thread, clears conversation but keeps todos
 
 ## Core Components
 
@@ -955,6 +1013,72 @@ ActionConfig(
     payload={"key": "value"}   # Optional data to pass with action
 )
 ```
+
+---
+
+## Branding & Customization
+
+The application supports full branding customization via environment variables and CSS:
+
+### Environment Variables
+
+```env
+BRAND_NAME=My Company Todos      # Header title
+BRAND_TAGLINE=Stay Organized     # Header subtitle
+BRAND_LOGO_URL=/static/logo.svg  # Logo image URL
+BRAND_PRIMARY_COLOR=#0078d4      # Primary brand color
+BRAND_FAVICON_URL=/static/favicon.ico
+```
+
+### Branding API
+
+The `/api/branding` endpoint returns branding configuration as JSON:
+
+```json
+{
+  "name": "My Company Todos",
+  "tagline": "Stay Organized",
+  "logoUrl": "/static/logo.svg",
+  "primaryColor": "#0078d4",
+  "faviconUrl": "/static/favicon.ico"
+}
+```
+
+### CSS Customization
+
+Edit `static/branding.css` to customize colors, typography, and spacing:
+
+```css
+:root {
+    /* Primary brand colors */
+    --brand-primary: #0078d4;
+    --brand-primary-hover: #106ebe;
+    
+    /* Header gradient */
+    --header-gradient-start: #0078d4;
+    --header-gradient-end: #005a9e;
+    
+    /* Status colors */
+    --color-success: #28a745;
+    --color-danger: #dc3545;
+    
+    /* Logo sizing */
+    --logo-width: 32px;
+    --logo-height: 32px;
+}
+```
+
+### Branding Flow
+
+```
+Page Load → fetch(/api/branding) → Apply to DOM
+                  │
+                  ▼
+            config.py reads
+            env variables
+```
+
+---
 
 ## Best Practices
 

@@ -9,6 +9,8 @@ A self-hosted ChatKit todo list application powered by Azure OpenAI, featuring i
 - **ChatKit Integration**: Uses OpenAI's ChatKit for a modern chat UI with interactive widgets
 - **Azure OpenAI**: Powered by Azure OpenAI with GPT-4o model
 - **Interactive Widgets**: Rich UI with buttons, checkboxes, forms, and badges
+- **Global Todo Persistence**: Todos persist across sessions and conversations
+- **Customizable Branding**: Easy logo, colors, and styling customization
 - **Modular Architecture**: Easily extend with new use cases
 - **Self-Hosted**: Full control over your data and infrastructure
 - **Azure Container Apps**: Cloud-native deployment with auto-scaling
@@ -65,11 +67,11 @@ For detailed architecture, deployment patterns, and React examples, see [ARCHITE
 ```
 chatkit-sample/
 ├── main.py                  # FastAPI application entry point
-├── config.py                # Configuration management
+├── config.py                # Configuration management (incl. branding)
 ├── chatkit_server.py        # Todo ChatKit server (extends BaseChatKitServer)
 ├── base_server.py           # Reusable base server with Azure OpenAI
 ├── azure_client.py          # Azure OpenAI client manager
-├── store.py                 # SQLite data store
+├── store.py                 # SQLite data store (global todos)
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Container build configuration
 ├── azure.yaml              # Azure Developer CLI configuration
@@ -80,9 +82,11 @@ chatkit-sample/
 │       ├── agent.py        # Agent with tools
 │       ├── widgets.py      # Widget builders
 │       ├── actions.py      # Action handlers
-│       └── database.py     # Data persistence
+│       └── database.py     # Data persistence (legacy)
 ├── static/
-│   └── index.html          # ChatKit frontend
+│   ├── index.html          # ChatKit frontend
+│   ├── branding.css        # Customizable brand colors/styles
+│   └── logo.svg            # Default logo (replace with your own)
 └── infra/
     ├── main.bicep          # Azure infrastructure as code
     └── main.parameters.json # Deployment parameters
@@ -143,6 +147,39 @@ chatkit-sample/
 
 7. **Open your browser**
    Navigate to `http://localhost:8000`
+
+## 🎨 Branding & Customization
+
+Customize the app's appearance to match your organization's brand:
+
+### Environment Variables
+
+```env
+# In your .env file
+BRAND_NAME=My Company Todos
+BRAND_TAGLINE=Stay Organized
+BRAND_LOGO_URL=/static/logo.svg
+BRAND_PRIMARY_COLOR=#0078d4
+BRAND_FAVICON_URL=/static/favicon.ico
+```
+
+### CSS Customization
+
+Edit `static/branding.css` for deeper styling:
+
+```css
+:root {
+    --brand-primary: #0078d4;        /* Primary brand color */
+    --header-gradient-start: #0078d4; /* Header gradient */
+    --header-gradient-end: #005a9e;
+    --color-success: #28a745;         /* Success/complete color */
+    --color-danger: #dc3545;          /* Delete/error color */
+}
+```
+
+### Custom Logo
+
+Replace `static/logo.svg` with your own logo file (SVG, PNG, or any web format).
 
 ## 💬 Using the Todo Assistant
 
