@@ -69,6 +69,42 @@ async def delete_todo(ctx: RunContextWrapper["TodoContext"], todo_id: str) -> st
     return f"Todo with ID '{todo_id}' not found."
 
 
+@function_tool(description_override="Find and delete a todo item by searching for keywords in its title. Use this when the user wants to delete a todo by describing it rather than by ID.")
+async def find_and_delete_todo(ctx: RunContextWrapper["TodoContext"], search_text: str) -> str:
+    """Find a todo by title/description and delete it."""
+    thread_id = ctx.context.thread.id
+    store = ctx.context.store
+    todos = await store.list_todos(thread_id)
+    
+    # Search for matching todos (case-insensitive)
+    search_lower = search_text.lower()
+    matches = [t for t in todos if search_lower in t["title"].lower()]
+    
+    if not matches:
+        # Trigger widget display to help user find the right todo
+        ctx.context._show_todo_widget = True
+        ctx.context._todos = todos
+        return f"No todo found matching '{search_text}'. Here's your todo list - you can use the delete button next to any item."
+    
+    if len(matches) == 1:
+        # Exactly one match - delete it
+        todo = matches[0]
+        await store.delete_todo(thread_id, todo["id"])
+        
+        # Trigger widget display after deleting
+        updated_todos = await store.list_todos(thread_id)
+        ctx.context._show_todo_widget = True
+        ctx.context._todos = updated_todos
+        
+        return f"Deleted '{todo['title']}'! Here's your updated list:"
+    
+    # Multiple matches - show them to user
+    ctx.context._show_todo_widget = True
+    ctx.context._todos = todos
+    match_titles = ", ".join([f"'{m['title']}'" for m in matches])
+    return f"Found multiple todos matching '{search_text}': {match_titles}. Please be more specific or use the delete button in the widget."
+
+
 @function_tool(description_override="List all todo items and show an interactive widget to manage them.")
 async def list_todos(ctx: RunContextWrapper["TodoContext"]) -> str:
     """Get all todos for the current thread and trigger widget display."""
@@ -103,7 +139,9 @@ CRITICAL RULES - YOU MUST FOLLOW THESE:
 
 4. **For completing todos**: Use complete_todo with the todo ID.
 
-5. **For deleting todos**: Use delete_todo with the todo ID.
+5. **For deleting todos by description**: When the user wants to delete a todo by describing it (e.g., "delete the ice cream todo", "remove the one about groceries"), use find_and_delete_todo with the search text. This will automatically find and delete the matching todo.
+
+6. **For deleting todos by ID**: If you have the exact todo ID, use delete_todo.
 
 TRIGGER WORDS that REQUIRE calling list_todos:
 - "show" (show todos, show me, show my list)
@@ -127,5 +165,5 @@ def create_todo_agent() -> Agent["TodoContext"]:
     return Agent["TodoContext"](
         name="Todo Assistant",
         instructions=TODO_AGENT_INSTRUCTIONS,
-        tools=[add_todo, complete_todo, delete_todo, list_todos],
+        tools=[add_todo, complete_todo, delete_todo, find_and_delete_todo, list_todos],
     )
