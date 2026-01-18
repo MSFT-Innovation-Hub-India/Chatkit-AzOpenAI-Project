@@ -4,6 +4,21 @@ This document explains what customizations were made to use ChatKit with **Azure
 
 ---
 
+## Reference: Official ChatKit Starter App
+
+OpenAI provides an official starter app that demonstrates how ChatKit works with OpenAI directly:
+
+- **Repository**: [github.com/openai/openai-chatkit-starter-app](https://github.com/openai/openai-chatkit-starter-app)
+- **Documentation**: [platform.openai.com/docs/guides/chatkit](https://platform.openai.com/docs/guides/chatkit)
+- **Widget Gallery**: [widgets.chatkit.studio/gallery](https://widgets.chatkit.studio/gallery)
+- **Components Reference**: [widgets.chatkit.studio/components](https://widgets.chatkit.studio/components)
+
+The official starter contains two examples:
+1. **`chatkit/`** - Self-hosted ChatKit integration (what we're based on)
+2. **`managed-chatkit/`** - Managed ChatKit with hosted workflows
+
+---
+
 ## Executive Summary
 
 ChatKit is designed to work with OpenAI directly. This project adds a custom layer to support Azure OpenAI. The key differences are:
@@ -15,6 +30,91 @@ ChatKit is designed to work with OpenAI directly. This project adds a custom lay
 | **Endpoint** | `api.openai.com` | `your-resource.openai.azure.com` |
 | **Model reference** | `gpt-4o` (model name) | Deployment name |
 | **Custom code needed** | ❌ None | ✅ Client manager, base server |
+
+---
+
+## Comparison: Official Starter vs This Project
+
+### Official OpenAI Starter (`chatkit/backend/app/server.py`)
+
+```python
+# From: github.com/openai/openai-chatkit-starter-app/chatkit/backend/app/server.py
+
+from agents import Agent, Runner
+from chatkit.agents import AgentContext, stream_agent_response
+
+MODEL = "gpt-4.1-mini"
+
+assistant_agent = Agent[AgentContext[dict[str, Any]]](
+    model=MODEL,                              # ← Just the model name!
+    name="Starter Assistant",
+    instructions="You are a concise, helpful assistant...",
+)
+
+class StarterChatServer(ChatKitServer[dict[str, Any]]):
+    async def respond(self, thread, item, context):
+        agent_context = AgentContext(thread=thread, store=self.store, ...)
+        
+        # No model override needed - uses OPENAI_API_KEY automatically
+        result = Runner.run_streamed(
+            assistant_agent,
+            agent_input,
+            context=agent_context,
+            # ← No run_config! Uses default OpenAI client
+        )
+        
+        async for event in stream_agent_response(agent_context, result):
+            yield event
+```
+
+**Key observation:** The official starter has **NO** client manager, **NO** model wrapper, and **NO** `RunConfig`. It just:
+1. Sets `OPENAI_API_KEY` environment variable
+2. Defines agent with model name (`gpt-4.1-mini`)
+3. Calls `Runner.run_streamed()` directly
+
+### This Project (`base_server.py`)
+
+```python
+# From: this project's base_server.py
+
+from agents import Agent, Runner, OpenAIChatCompletionsModel, RunConfig  # ← Extra imports!
+from azure_client import client_manager  # ← Azure-specific!
+
+class BaseChatKitServer(ChatKitServer):
+    async def respond(self, thread, input, context):
+        # AZURE-SPECIFIC: Get Azure OpenAI client
+        client = await client_manager.get_client()
+        
+        # AZURE-SPECIFIC: Wrap in model class
+        azure_model = OpenAIChatCompletionsModel(
+            model=settings.azure_openai_deployment,  # ← Deployment name
+            openai_client=client,                    # ← Azure client
+        )
+        
+        agent_context = AgentContext(thread=thread, store=self.data_store, ...)
+        
+        # AZURE-SPECIFIC: Override model in RunConfig
+        result = Runner.run_streamed(
+            agent,
+            agent_input,
+            context=agent_context,
+            run_config=RunConfig(model=azure_model),  # ← Required for Azure!
+        )
+        
+        async for event in stream_agent_response(agent_context, result):
+            yield event
+```
+
+### Side-by-Side Comparison
+
+| Aspect | Official Starter (OpenAI) | This Project (Azure OpenAI) |
+|--------|---------------------------|----------------------------|
+| **Authentication** | `OPENAI_API_KEY` env var | `DefaultAzureCredential` |
+| **Client creation** | Automatic (SDK default) | Manual (`AsyncAzureOpenAI`) |
+| **Model reference** | `model="gpt-4.1-mini"` on Agent | `OpenAIChatCompletionsModel` wrapper |
+| **Runner call** | `Runner.run_streamed(agent, input, context)` | `Runner.run_streamed(agent, input, context, run_config=RunConfig(model=...))` |
+| **Extra files** | None | `azure_client.py` |
+| **Extra imports** | None | `OpenAIChatCompletionsModel`, `RunConfig` |
 
 ---
 
@@ -353,6 +453,135 @@ This project adds **three main components** to support Azure OpenAI:
 - Remove `azure-identity` from dependencies
 
 The **ChatKitServer**, **Widgets**, **Store**, and **Agent/Tools** are all framework components that remain the same regardless of which OpenAI service you use.
+
+---
+
+## Features Not Implemented (Future Consideration)
+
+### Conversation History Loading
+
+The official ChatKit starter app includes a pattern for loading conversation history on each request, enabling multi-turn conversations with full context. **This project does not currently implement this feature.**
+
+#### Official Starter Pattern (`chatkit/backend/app/server.py`)
+
+```python
+MAX_RECENT_ITEMS = 30
+
+class StarterChatServer(ChatKitServer[dict[str, Any]]):
+    async def respond(self, thread, item, context):
+        # Load the last 30 messages from the thread
+        items_page = await self.store.load_thread_items(
+            thread.id,
+            after=None,
+            limit=MAX_RECENT_ITEMS,
+            order="desc",
+            context=context,
+        )
+        items = list(reversed(items_page.data))
+        
+        # Convert ALL thread items to agent input (includes history)
+        agent_input = await simple_to_agent_input(items)
+        
+        # Agent now sees full conversation context
+        result = Runner.run_streamed(agent, agent_input, context=agent_context)
+```
+
+#### This Project's Current Pattern (`base_server.py`)
+
+```python
+class BaseChatKitServer(ChatKitServer):
+    async def respond(self, thread, input, context):
+        # Only converts the current input (no history loading)
+        converter = ThreadItemConverter()
+        agent_input = await converter.to_agent_input(input)
+        
+        # Agent only sees the current message
+        result = Runner.run_streamed(agent, agent_input, context=agent_context, ...)
+```
+
+#### Comparison
+
+| Aspect | Official Starter | This Project |
+|--------|-----------------|--------------|
+| **History loading** | Loads last 30 items from store | Does not load history |
+| **Agent context** | Sees full conversation | Sees only current message |
+| **Multi-turn memory** | ✅ Supported (e.g., "Add that task I mentioned") | ❌ Not supported |
+| **Stateless operations** | ✅ Works | ✅ Works |
+
+#### Why It Works for the Todo App
+
+The current todo use case is **stateless per request**:
+- "Add buy groceries" → Tool call is self-contained
+- "Show my todos" → Fetches from database, no conversation context needed
+- "Delete todo 3" → Tool call is self-contained
+
+Each operation is complete on its own without needing prior conversation context.
+
+#### When to Implement History Loading
+
+Consider implementing history loading for future use cases that require:
+
+1. **Reference resolution**: "Add that task I mentioned earlier"
+2. **Follow-up questions**: "What about the second one?"
+3. **Contextual refinement**: "Make it shorter" (referring to previous output)
+4. **Conversation continuity**: "Can you explain more?"
+
+#### Implementation for Future Use Cases
+
+To add conversation history support to `base_server.py`:
+
+```python
+from chatkit.agents import simple_to_agent_input  # Add import
+
+MAX_RECENT_ITEMS = 30
+
+async def respond(self, thread, input, context):
+    # Load conversation history
+    items_page = await self.data_store.load_thread_items(
+        thread.id,
+        after=None,
+        limit=MAX_RECENT_ITEMS,
+        order="desc",
+        context=context,
+    )
+    items = list(reversed(items_page.data))
+    
+    # Convert with history (instead of just current input)
+    agent_input = await simple_to_agent_input(items)
+    
+    # Rest of the method remains the same...
+```
+
+---
+
+## References
+
+### Official OpenAI Resources
+
+| Resource | URL | Description |
+|----------|-----|-------------|
+| **ChatKit Starter App** | [github.com/openai/openai-chatkit-starter-app](https://github.com/openai/openai-chatkit-starter-app) | Official starter templates (self-hosted + managed) |
+| **ChatKit Documentation** | [platform.openai.com/docs/guides/chatkit](https://platform.openai.com/docs/guides/chatkit) | Official ChatKit guide |
+| **Widget Gallery** | [widgets.chatkit.studio/gallery](https://widgets.chatkit.studio/gallery) | Visual examples of widgets |
+| **Components Reference** | [widgets.chatkit.studio/components](https://widgets.chatkit.studio/components) | Widget component props and styling |
+| **Icons Reference** | [widgets.chatkit.studio/icons](https://widgets.chatkit.studio/icons) | Available icons for widgets |
+
+### Key Files in Official Starter
+
+| File | Purpose |
+|------|---------|
+| `chatkit/backend/app/server.py` | Shows minimal ChatKitServer with OpenAI |
+| `chatkit/backend/app/memory_store.py` | In-memory Store implementation |
+| `chatkit/frontend/src/components/ChatKitPanel.tsx` | React ChatKit usage |
+| `managed-chatkit/` | Alternative using hosted workflows |
+
+### This Project's Azure-Specific Files
+
+| File | Purpose |
+|------|---------|
+| `azure_client.py` | Azure AD authentication, `AsyncAzureOpenAI` client |
+| `base_server.py` | Azure model wrapping, `RunConfig` override |
+| `config.py` | Azure OpenAI endpoint, deployment, API version settings |
 
 ---
 
