@@ -6,7 +6,8 @@ A self-hosted ChatKit todo list application powered by Azure OpenAI, featuring i
 
 ## 🎯 Features
 
-- **ChatKit Integration**: Uses OpenAI's ChatKit for a modern chat UI with interactive widgets
+- **Official ChatKit React UI**: Uses OpenAI's `@openai/chatkit-react` components
+- **ChatKit Protocol**: Backend uses `openai-chatkit` Python library
 - **Azure OpenAI**: Powered by Azure OpenAI with GPT-4o model
 - **Interactive Widgets**: Rich UI with buttons, checkboxes, forms, and badges
 - **Global Todo Persistence**: Todos persist across sessions and conversations
@@ -17,14 +18,56 @@ A self-hosted ChatKit todo list application powered by Azure OpenAI, featuring i
 
 ## 🤔 What is ChatKit?
 
-ChatKit is OpenAI's protocol for building **self-hosted chat applications** with rich, interactive UIs. Unlike traditional agent applications that only return text, ChatKit enables:
+ChatKit consists of two parts:
 
-| Standard Agent | ChatKit Application |
-|----------------|---------------------|
-| Text-only responses | Text + Interactive widgets |
-| One-way communication | Bidirectional (actions ↔ updates) |
-| Build your own UI | Pre-built UI components |
-| Request/response | Real-time streaming |
+| Component | Package | Description |
+|-----------|---------|-------------|
+| **ChatKit React UI** | `@openai/chatkit-react` | Official React components for the chat interface |
+| **ChatKit Protocol** | `openai-chatkit` (Python) | Server-side library for streaming, widgets, and actions |
+
+This project uses **both** - the official React frontend connected to a self-hosted Python backend.
+
+### Server-Driven UI Architecture
+
+ChatKit uses a **Server-Driven UI** pattern:
+
+- **Server (Python)** controls **WHAT** to display (widget structure, colors, labels)
+- **Client (React)** controls **HOW** to display it (CSS, animations, theming)
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│  Python (widgets.py)              JSON Protocol              React (ChatKit) │
+│  ───────────────────              ─────────────              ─────────────── │
+│                                                                               │
+│  Button(                    →    {"type": "Button",    →    <button class=   │
+│    label="✓",                      "label": "✓",             "ck-btn--success │
+│    color="success",                "color": "success",        ck-btn--soft">  │
+│    variant="soft"                  "variant": "soft"}        ✓</button>       │
+│  )                                                                            │
+│                                                                               │
+│  You define STRUCTURE           Serialized over SSE      React renders HTML  │
+│  No CSS needed!                                          with built-in styles│
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- Change UI by editing Python only—no frontend deployment needed
+- Pre-built styles for all color/variant combinations
+- Type-safe widget definitions
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Frontend (React)                  Backend (Python)                         │
+│  ─────────────────                 ─────────────────                        │
+│  @openai/chatkit-react      ←→     openai-chatkit + FastAPI                │
+│  • Official UI components          • ChatKit protocol server                │
+│  • Streaming display               • Widget definitions                     │
+│  • Action handling                 • Azure OpenAI integration               │
+│                                    • SQLite persistence                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### How Widget Rendering Works
 
@@ -32,35 +75,10 @@ ChatKit is OpenAI's protocol for building **self-hosted chat applications** with
 
 1. **Server** builds widget objects in Python (`Card`, `Button`, `Row`, etc.)
 2. **Server** streams widget as JSON over SSE (e.g., `{"type": "Button", "label": "Add"}`)
-3. **Client** JavaScript parses JSON and creates DOM elements
-4. **Browser** renders the final HTML
+3. **ChatKit React** receives JSON and renders using official components
+4. **Browser** displays the interactive widget
 
-```
-Server (Python)           Wire (JSON)              Client (JavaScript)
-─────────────────    ─────────────────────    ─────────────────────────
-Button(label="Add")  → {"type":"Button",...}  → <button>Add</button>
-```
-
-### Where is the UI Served From?
-
-In this project, **FastAPI serves both**:
-- `/chatkit` - The ChatKit API endpoint (streaming JSON)
-- `/` and `/static` - The frontend HTML/JS/CSS files
-
-```python
-# main.py serves the frontend
-@app.get("/")
-async def serve_frontend():
-    return FileResponse("static/index.html")
-
-app.mount("/static", StaticFiles(directory="static"))
-```
-
-**No separate web server is needed** for this vanilla HTML/JS implementation. If using React/Vue, you can either:
-- Build and copy to `static/` (simple)
-- Host frontend on CDN separately (production)
-
-For detailed architecture, deployment patterns, and React examples, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For detailed architecture, deployment patterns, and customization, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 📁 Project Structure
 
@@ -76,6 +94,12 @@ chatkit-sample/
 ├── azure.yaml              # Azure Developer CLI configuration
 ├── ARCHITECTURE.md         # Detailed architecture documentation
 ├── .env.example            # Environment variables template
+├── frontend/               # React frontend (official ChatKit UI)
+│   ├── package.json        # Node.js dependencies
+│   ├── src/
+│   │   ├── App.tsx         # Main ChatKit React component
+│   │   └── main.tsx        # React entry point
+│   └── vite.config.ts      # Vite build configuration
 ├── use_cases/              # Modular use case implementations
 │   └── todo/               # Todo list use case (complete module)
 │       ├── __init__.py     # Exports TodoChatKitServer
@@ -85,7 +109,8 @@ chatkit-sample/
 │       ├── actions.py      # Action handlers
 │       └── database.py     # Data persistence (legacy)
 ├── static/
-│   ├── index.html          # ChatKit frontend
+│   ├── index.html          # Vanilla JS frontend (fallback)
+│   ├── dist/               # React build output (generated)
 │   ├── branding.css        # Customizable brand colors/styles
 │   └── logo.svg            # Default logo (replace with your own)
 └── infra/
@@ -98,6 +123,7 @@ chatkit-sample/
 ### Prerequisites
 
 - Python 3.11+
+- Node.js 18+ (for React frontend)
 - Azure subscription with:
   - Azure OpenAI with GPT-4o deployment
   - (Optional) Azure Container Apps for deployment
@@ -110,18 +136,22 @@ chatkit-sample/
    cd chatkit-sample
    ```
 
-2. **Create a virtual environment**
+2. **Create a virtual environment and install Python dependencies**
    ```bash
-   python -m venv venv
+   python -m venv .venv
    # Windows
-   .\venv\Scripts\activate
+   .\.venv\Scripts\activate
    # Linux/macOS
-   source venv/bin/activate
+   source .venv/bin/activate
+   
+   pip install -r requirements.txt
    ```
 
-3. **Install dependencies**
+3. **Install React frontend dependencies**
    ```bash
-   pip install -r requirements.txt
+   cd frontend
+   npm install
+   cd ..
    ```
 
 4. **Configure environment variables**

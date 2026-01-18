@@ -5,15 +5,16 @@ This document explains the modular architecture of this ChatKit sample project, 
 ## Table of Contents
 
 1. [What is ChatKit?](#what-is-chatkit)
-2. [How Widget Rendering Works](#how-widget-rendering-works)
-3. [Architecture Overview](#architecture-overview)
-4. [ChatKit Server: Middleware or Backend?](#chatkit-server-middleware-or-backend)
-5. [Production Deployment Patterns](#production-deployment-patterns)
-6. [Project Structure](#project-structure)
-7. [Core Components](#core-components)
-8. [How the Todo Use Case Works](#how-the-todo-use-case-works)
-9. [Creating a New Use Case](#creating-a-new-use-case)
-10. [Widget Reference](#widget-reference)
+2. [Server-Driven UI: The Core Concept](#server-driven-ui-the-core-concept)
+3. [How Widget Rendering Works](#how-widget-rendering-works)
+4. [Architecture Overview](#architecture-overview)
+5. [ChatKit Server: Middleware or Backend?](#chatkit-server-middleware-or-backend)
+6. [Production Deployment Patterns](#production-deployment-patterns)
+7. [Project Structure](#project-structure)
+8. [Core Components](#core-components)
+9. [How the Todo Use Case Works](#how-the-todo-use-case-works)
+10. [Creating a New Use Case](#creating-a-new-use-case)
+11. [Widget Reference](#widget-reference)
 
 ---
 
@@ -74,6 +75,152 @@ ChatKit is OpenAI's protocol for building **self-hosted chat applications** with
 | **UI** | Build your own | Pre-built components |
 | **Streaming** | Optional | Built-in |
 | **State** | Manual | Thread-based |
+
+---
+
+## Server-Driven UI: The Core Concept
+
+ChatKit implements a **Server-Driven UI** architecture. This is a fundamental pattern where:
+
+- **Server (Python)** controls **WHAT** to display
+- **Client (React)** controls **HOW** to display it
+
+### The Complete Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          YOUR CODE (Python)                                 │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  widgets.py - Define widget structure                                 │  │
+│  │                                                                       │  │
+│  │  Card(children=[                                                      │  │
+│  │    Title(value="My Todo List"),                                       │  │
+│  │    Badge(label="3 pending", color="warning"),                         │  │
+│  │    Button(label="✓", color="success", variant="soft"),               │  │
+│  │    ...                                                                │  │
+│  │  ])                                                                   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                     │                                       │
+│                     Python objects serialized to JSON                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      ChatKit Protocol (JSON over SSE)                       │
+│                                                                             │
+│  {                                                                          │
+│    "type": "Card",                                                          │
+│    "id": "todo_widget_123",                                                 │
+│    "children": [                                                            │
+│      {"type": "Title", "value": "My Todo List"},                            │
+│      {"type": "Badge", "label": "3 pending", "color": "warning"},           │
+│      {"type": "Button", "label": "✓", "color": "success", "variant": "soft"}│
+│    ]                                                                        │
+│  }                                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    @openai/chatkit-react (React Library)                    │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  <ChatKitProvider> receives JSON and renders real HTML                │  │
+│  │                                                                       │  │
+│  │  JSON "Button"  →  <button class="ck-btn ck-btn--success ck-btn--soft">│ │
+│  │  JSON "Card"    →  <div class="ck-card">                              │  │
+│  │  JSON "Badge"   →  <span class="ck-badge ck-badge--warning">          │  │
+│  │                                                                       │  │
+│  │  + CSS variables define colors for success, warning, etc.             │  │
+│  │  + Handles click events → sends action payloads back to server        │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Browser (Final HTML/CSS)                           │
+│                                                                             │
+│   Actual styled buttons, cards, badges rendered to screen                   │
+│   User sees: ┌──────────────────────────────────────┐                       │
+│              │  📋 My Todo List   [3 pending] [done]│                      │
+│              │  ☑ Get tennis racket    [Done] [✓] [🗑]│                     │
+│              │  ☐ Call mom                    [✓] [🗑]│                     │
+│              └──────────────────────────────────────┘                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why Changes in Python Affect the UI
+
+When you change widget properties in Python, here's what happens:
+
+```python
+# Python code in widgets.py
+Button(
+    label="✓",
+    color="success",      # You change this
+    variant="soft",       # And this
+)
+```
+
+1. **Python serializes**: `{"color": "success", "variant": "soft"}`
+2. **React receives** this JSON over the ChatKit protocol
+3. **React applies CSS classes**: `class="ck-button ck-button--success ck-button--soft"`
+4. **Browser renders** a light green button with dark green checkmark
+
+**You never write CSS.** The React library has pre-built styles for all combinations:
+
+| Color | Variant: `solid` | Variant: `soft` | Variant: `outline` | Variant: `ghost` |
+|-------|------------------|-----------------|--------------------| ---------------- |
+| `success` | Green bg, white text | Light green bg, dark green text | Green border | Green text only |
+| `secondary` | Gray bg, white text | Light gray bg, dark text | Gray border | Gray text only |
+| `warning` | Orange bg, white text | Light orange bg, dark text | Orange border | Orange text only |
+| `danger` | Red bg, white text | Light red bg, dark text | Red border | Red text only |
+| `info` | Teal bg, white text | Light teal bg, dark text | Teal border | Teal text only |
+
+### What Each Part Does
+
+| Component | Package | Responsibilities |
+|-----------|---------|------------------|
+| **Python Backend** | `openai-chatkit` | Define widget structure, handle actions, integrate with LLM |
+| **React Frontend** | `@openai/chatkit-react` | Render widgets, apply styling, send user interactions |
+| **ChatKit Protocol** | JSON over SSE | Transport widget definitions and action events |
+
+### Benefits of Server-Driven UI
+
+1. **Change UI without frontend deployment**: Update Python code → restart server → new UI
+2. **Consistent rendering**: React library ensures all widgets look correct
+3. **Type-safe widgets**: Python classes validate widget properties at creation time
+4. **Platform agnostic**: Same Python code could render on web, mobile, or desktop
+5. **Simpler frontend**: No custom components needed, just use official library
+
+### Available Widget Styling Options
+
+**Button properties:**
+```python
+Button(
+    label="Click me",           # Button text
+    color="success",            # success, secondary, warning, danger, info, primary
+    variant="soft",             # solid, soft, outline, ghost
+    size="sm",                  # sm, md, lg
+)
+```
+
+**Badge properties:**
+```python
+Badge(
+    label="3 pending",          # Badge text
+    color="warning",            # secondary, success, danger, warning, info, discovery
+)
+# Note: Badge does NOT support 'primary' color
+```
+
+**Checkbox properties:**
+```python
+Checkbox(
+    name="task_1",
+    defaultChecked=True,
+    onChangeAction=ActionConfig(type="toggle", handler="server", payload={...})
+)
+# Note: Checkbox styling is controlled by ChatKit React theme, not server
+```
 
 ---
 
@@ -149,14 +296,39 @@ This is a crucial concept to understand: **widgets are NOT HTML sent from the se
 
 ### Where is the Frontend Served From?
 
-In this project, **FastAPI serves both the API and static files**:
+This project uses **official ChatKit React components** (`@openai/chatkit-react`) for the frontend:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ARCHITECTURE                                         │
+│                                                                              │
+│   ┌─────────────────────────┐           ┌──────────────────────────────┐    │
+│   │  React Frontend         │           │  Python Backend              │    │
+│   │  (Vite + TypeScript)    │  HTTP     │  (FastAPI)                   │    │
+│   │                         │           │                              │    │
+│   │  @openai/chatkit-react  │ ◄────────►│  openai-chatkit              │    │
+│   │  <ChatKit control={...}>│  /chatkit │  ChatKitServer               │    │
+│   │  useChatKit() hook      │           │  (Protocol + Streaming)      │    │
+│   └─────────────────────────┘           └──────────────────────────────┘    │
+│                                                  │                          │
+│                                                  ▼                          │
+│                                         ┌──────────────────────────────┐    │
+│                                         │  Azure OpenAI (GPT-4o)       │    │
+│                                         └──────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**FastAPI serves both the React build and API:**
 
 ```python
 # main.py
 
-# Serve the ChatKit frontend (index.html)
+# Serve React build (production)
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
+    # Priority: React build, then fallback to vanilla JS
+    if os.path.exists("static/dist/index.html"):
+        return FileResponse("static/dist/index.html")
     return FileResponse("static/index.html")
 
 # Serve static assets (JS, CSS, images)
@@ -173,10 +345,72 @@ async def chatkit_endpoint(request: Request):
 
 | Scenario | Separate Server Needed? | Recommendation |
 |----------|------------------------|----------------|
-| **This sample (vanilla HTML/JS)** | ❌ No | FastAPI serves `static/index.html` directly |
-| **React/Vue/Angular SPA** | ⚠️ Optional | Can be served by FastAPI, or use CDN for better caching |
+| **This sample (React + ChatKit)** | ❌ No | FastAPI serves React build from `static/dist/` |
+| **Development mode** | ⚠️ Two processes | Vite dev server (port 3000) + FastAPI (port 8000) |
 | **Production with CDN** | ✅ Yes (recommended) | Static assets on CDN, API on containers |
 | **Next.js / SSR frameworks** | ✅ Yes | Needs Node.js server for SSR |
+
+### Official ChatKit React Components
+
+This project uses the **official ChatKit React library** instead of custom widget rendering:
+
+```tsx
+// frontend/src/App.tsx
+import { ChatKit, useChatKit } from '@openai/chatkit-react';
+
+function App() {
+  const { control } = useChatKit({
+    api: { apiURL: '/chatkit' },  // Points to Python backend
+    theme: 'light',
+    newThreadView: {
+      greeting: {
+        title: 'Todo Assistant',
+        description: 'I help you manage your tasks'
+      },
+      starterPrompts: [
+        { label: 'Show my todos', prompt: 'Show all my todos' },
+        { label: 'Add a task', prompt: 'Add a new task: ' }
+      ]
+    }
+  });
+
+  return <ChatKit control={control} />;
+}
+```
+
+**Key benefits of official ChatKit React:**
+- Built-in widget rendering (no custom JavaScript needed)
+- TypeScript types for all components
+- Automatic theme support
+- Thread management built-in
+- Sidebar and header components included
+
+### Development Workflow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         DEVELOPMENT MODE                                     │
+│                                                                              │
+│   Terminal 1:                        Terminal 2:                            │
+│   python main.py                     cd frontend && npm run dev             │
+│   (Backend on :8000)                 (Vite on :3000 with proxy)             │
+│                                                                              │
+│   Browser: http://localhost:3000                                             │
+│   Vite proxies /chatkit and /api to :8000                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PRODUCTION MODE                                      │
+│                                                                              │
+│   Build: cd frontend && npm run build                                        │
+│   (Outputs to static/dist/)                                                  │
+│                                                                              │
+│   Run: python main.py                                                        │
+│   (Serves React build + API on :8000)                                        │
+│                                                                              │
+│   Browser: http://localhost:8000                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### React/Vue Implementation Pattern
 

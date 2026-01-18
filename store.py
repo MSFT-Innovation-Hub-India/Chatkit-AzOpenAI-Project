@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from chatkit.store import Store, ThreadMetadata, ThreadItem, Page, Attachment
-from chatkit.types import ActiveStatus
+from chatkit.types import ActiveStatus, LockedStatus, ClosedStatus
 from pydantic import TypeAdapter
 
 # Create a TypeAdapter for parsing thread items from JSON
@@ -278,10 +278,28 @@ class SQLiteStore(Store):
                 if i >= limit:
                     has_more = True
                     break
+                
+                # Parse created_at from ISO string (use bracket notation for sqlite3.Row)
+                created_at_str = row["created_at"] if "created_at" in row.keys() else row["updated_at"]
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                else:
+                    created_at = datetime.now(timezone.utc)
+                
+                # Build proper ThreadStatus object
+                status_str = row["status"] if "status" in row.keys() else "active"
+                if status_str == "locked":
+                    status = LockedStatus()
+                elif status_str == "closed":
+                    status = ClosedStatus()
+                else:
+                    status = ActiveStatus()
+                
                 threads.append(ThreadMetadata(
                     id=row["id"],
                     title=row["title"],
-                    status=row["status"],
+                    created_at=created_at,
+                    status=status,
                 ))
                 last_id = row["id"]
         

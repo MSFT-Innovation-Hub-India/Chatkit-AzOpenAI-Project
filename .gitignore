@@ -66,3 +66,12 @@ htmlcov/
 
 # Azure
 .azure/
+
+# Node.js / React frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+static/dist/
+*.tsbuildinfo
+.npm
+.eslintcache

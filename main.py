@@ -139,11 +139,34 @@ async def get_branding():
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    """Serve the ChatKit frontend."""
+    """
+    Serve the ChatKit frontend.
+    
+    Priority:
+    1. React build (static/dist/index.html) - if built
+    2. Vanilla JS (static/index.html) - fallback
+    """
+    from pathlib import Path
+    
+    # Check for React build first
+    react_build = Path("static/dist/index.html")
+    if react_build.exists():
+        return FileResponse(str(react_build))
+    
+    # Fallback to vanilla JS
     return FileResponse("static/index.html")
 
 
-# Serve static files
+# Serve static files - React build takes priority
+try:
+    from pathlib import Path
+    react_dist = Path("static/dist")
+    if react_dist.exists():
+        app.mount("/assets", StaticFiles(directory="static/dist/assets"), name="assets")
+        logger.info("Serving React build from static/dist")
+except (RuntimeError, FileNotFoundError):
+    pass
+
 try:
     app.mount("/static", StaticFiles(directory="static"), name="static")
 except RuntimeError:
