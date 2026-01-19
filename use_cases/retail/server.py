@@ -14,10 +14,13 @@ from chatkit.server import ThreadStreamEvent
 from chatkit.store import ThreadMetadata, Page
 from chatkit.agents import stream_widget, AgentContext
 from chatkit.types import (
-    ThreadItemUpdatedEvent, ThreadItemReplacedEvent,
+    ThreadItemUpdatedEvent, ThreadItemReplacedEvent, ThreadItemAddedEvent,
+    ThreadItemDoneEvent, InferenceOptions,
     WidgetItem, WidgetRootUpdated,
-    AssistantMessageItem, AssistantMessageContent
+    AssistantMessageItem, AssistantMessageContent,
+    UserMessageItem, UserMessageTextContent,
 )
+import uuid
 from chatkit.widgets import Card, Text, Box, Button, Row, Badge, Divider, Title, Spacer
 from chatkit.actions import ActionConfig
 
@@ -102,9 +105,23 @@ async def tool_lookup_customer(ctx: RunContextWrapper["RetailContext"], search_t
     
     # Set context flags for widget display
     if result.get("found") and not result.get("multiple"):
+        customer = result.get("customer", {})
+        customer_id = customer.get("id", "")
+        
         ctx.context._show_customer_widget = True
-        ctx.context._customer_data = result.get("customer", {})
-        return f"Found customer: {result['customer']['name']} ({result['customer']['tier']} member). Email: {result['customer']['email']}. Customer ID: {result['customer']['id']}"
+        ctx.context._customer_data = customer
+        
+        # Also automatically fetch returnable items for a smoother flow
+        returnable_result = get_returnable_items(customer_id)
+        if returnable_result.get("found"):
+            orders = returnable_result.get("orders", [])
+            item_count = sum(len(o.get("items", [])) for o in orders)
+            ctx.context._show_returnable_items_widget = True
+            ctx.context._returnable_items_data = orders
+            ctx.context._current_customer_id = customer_id
+            return f"Found customer: {customer['name']} ({customer['tier']} member). Customer ID: {customer_id}. They have {item_count} items eligible for return. Please select which item you'd like to return."
+        else:
+            return f"Found customer: {customer['name']} ({customer['tier']} member). Customer ID: {customer_id}. However, they have no items currently eligible for return."
     elif result.get("multiple"):
         return f"Found multiple customers matching '{search_term}'. Please be more specific with the email or phone number."
     else:
@@ -135,6 +152,7 @@ async def tool_get_returnable_items(ctx: RunContextWrapper["RetailContext"], cus
         item_count = sum(len(o.get("items", [])) for o in orders)
         ctx.context._show_returnable_items_widget = True
         ctx.context._returnable_items_data = orders
+        ctx.context._current_customer_id = customer_id  # Store for later use
         return f"Found {item_count} items that can be returned. Please select which item you'd like to return."
     else:
         return result.get("message", "No returnable items found")
@@ -154,10 +172,11 @@ async def tool_check_return_eligibility(ctx: RunContextWrapper["RetailContext"],
 async def tool_get_return_reasons(ctx: RunContextWrapper["RetailContext"]) -> str:
     """Get return reasons."""
     result = get_return_reasons()
-    if result:
+    reasons = result.get("reasons", []) if isinstance(result, dict) else []
+    if reasons:
         ctx.context._show_reasons_widget = True
-        ctx.context._reasons_data = result
-        reason_list = ", ".join([r.get("label", r.get("code", "")) for r in result[:5]])
+        ctx.context._reasons_data = reasons
+        reason_list = ", ".join([r.get("label", r.get("code", "")) for r in reasons[:5]])
         return f"Please select the reason for your return: {reason_list}"
     return "No return reasons available"
 
@@ -166,10 +185,11 @@ async def tool_get_return_reasons(ctx: RunContextWrapper["RetailContext"]) -> st
 async def tool_get_resolution_options(ctx: RunContextWrapper["RetailContext"]) -> str:
     """Get resolution options."""
     result = get_resolution_options()
-    if result:
+    options = result.get("options", []) if isinstance(result, dict) else []
+    if options:
         ctx.context._show_resolution_widget = True
-        ctx.context._resolution_data = result
-        options_list = ", ".join([r.get("label", r.get("code", "")) for r in result])
+        ctx.context._resolution_data = options
+        options_list = ", ".join([r.get("label", r.get("code", "")) for r in options])
         return f"How would you like to be compensated? Options: {options_list}"
     return "No resolution options available"
 
@@ -178,10 +198,11 @@ async def tool_get_resolution_options(ctx: RunContextWrapper["RetailContext"]) -
 async def tool_get_shipping_options(ctx: RunContextWrapper["RetailContext"]) -> str:
     """Get shipping options."""
     result = get_shipping_options()
-    if result:
+    options = result.get("options", []) if isinstance(result, dict) else []
+    if options:
         ctx.context._show_shipping_widget = True
-        ctx.context._shipping_data = result
-        options_list = ", ".join([r.get("label", r.get("code", "")) for r in result])
+        ctx.context._shipping_data = options
+        options_list = ", ".join([r.get("label", r.get("code", "")) for r in options])
         return f"How would you like to ship the return? Options: {options_list}"
     return "No shipping options available"
 
@@ -190,9 +211,10 @@ async def tool_get_shipping_options(ctx: RunContextWrapper["RetailContext"]) -> 
 async def tool_get_retention_offers(ctx: RunContextWrapper["RetailContext"], customer_id: str) -> str:
     """Get retention offers."""
     result = get_retention_offers(customer_id)
-    if result:
+    offers = result.get("offers", []) if isinstance(result, dict) else []
+    if offers:
         ctx.context._show_retention_widget = True
-        ctx.context._retention_data = result
+        ctx.context._retention_data = offers
         return f"Before processing your return, we'd like to offer you a special discount if you keep the item. Would you like to see the offers?"
     return "No special offers available at this time."
 
@@ -329,7 +351,7 @@ def build_customer_widget(customer: dict) -> Card:
     )
 
 
-def build_returnable_items_widget(orders: list, thread_id: str) -> Card:
+def build_returnable_items_widget(orders: list, thread_id: str, customer_id: str = "") -> Card:
     """Build a widget for selecting items to return."""
     children = [
         Title(id="items-title", value="🔄 Select Item to Return", size="lg"),
@@ -347,6 +369,7 @@ def build_returnable_items_widget(orders: list, thread_id: str) -> Card:
             product_id = item.get("product_id", "")
             name = item.get("name", "Item")
             price = item.get("unit_price", 0)
+            quantity = item.get("quantity", 1)
             
             children.append(
                 Row(
@@ -372,6 +395,8 @@ def build_returnable_items_widget(orders: list, thread_id: str) -> Card:
                                     "product_id": product_id,
                                     "name": name,
                                     "unit_price": price,
+                                    "quantity": quantity,
+                                    "customer_id": customer_id,
                                 },
                             ),
                         ),
@@ -607,11 +632,24 @@ class RetailChatKitServer(BaseChatKitServer):
         }
         
         # Store context from action
-        if action_type == "select_return_item":
+        if action_type == "select_customer":
+            self._session_context["customer_id"] = payload.get("customer_id")
+            self._session_context["customer_name"] = payload.get("name", "")
+        
+        elif action_type == "select_return_item":
+            self._session_context["customer_id"] = payload.get("customer_id", "")
             self._session_context["selected_order_id"] = payload.get("order_id")
             self._session_context["selected_product_id"] = payload.get("product_id")
             self._session_context["selected_item_name"] = payload.get("name")
             self._session_context["unit_price"] = payload.get("unit_price", 0)
+            self._session_context["quantity"] = payload.get("quantity", 1)
+        
+        elif action_type == "select_reason":
+            self._session_context["reason_code"] = payload.get("reason_code")
+            self._session_context["reason_details"] = payload.get("reason_details", "")
+        
+        elif action_type == "select_resolution":
+            self._session_context["resolution"] = payload.get("resolution")
         
         elif action_type == "select_shipping":
             self._session_context["shipping_method"] = payload.get("shipping_method")
@@ -620,6 +658,18 @@ class RetailChatKitServer(BaseChatKitServer):
         message_text = action_messages.get(action_type, f"You selected: {action_type}")
         
         logger.info(f"Action processed: {message_text}")
+        
+        # Emit a user message to show the selection in the thread
+        # This makes the user's choices visible in the conversation
+        user_message_item = UserMessageItem(
+            id=f"user-selection-{uuid.uuid4().hex[:8]}",
+            thread_id=thread.id,
+            created_at=datetime.now(timezone.utc),
+            content=[UserMessageTextContent(type="input_text", text=message_text)],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+        yield ThreadItemDoneEvent(item=user_message_item)
         
         # Stream the next appropriate widget based on action type
         if action_type == "select_return_item":
@@ -650,11 +700,55 @@ class RetailChatKitServer(BaseChatKitServer):
                     yield event
         
         elif action_type == "select_shipping":
-            # After selecting shipping, show confirmation
-            confirmation = {
-                "id": f"RET-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                "status": "pending",
-            }
+            # After selecting shipping, actually create the return in Cosmos DB
+            try:
+                # Gather all context for the return
+                customer_id = self._session_context.get("customer_id", "")
+                order_id = self._session_context.get("selected_order_id", "")
+                product_id = self._session_context.get("selected_product_id", "")
+                item_name = self._session_context.get("selected_item_name", "")
+                unit_price = self._session_context.get("unit_price", 0)
+                quantity = self._session_context.get("quantity", 1)
+                reason_code = self._session_context.get("reason_code", "OTHER")
+                reason_details = self._session_context.get("reason_details", "")
+                resolution = self._session_context.get("resolution", "refund")
+                shipping_method = self._session_context.get("shipping_method", "prepaid_label")
+                
+                # Build items list for the return
+                items = [{
+                    "product_id": product_id,
+                    "name": item_name,
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                }]
+                
+                # Create the return request in Cosmos DB
+                result = create_return_request(
+                    customer_id=customer_id,
+                    order_id=order_id,
+                    items=items,
+                    reason_code=reason_code,
+                    reason_details=reason_details,
+                    resolution=resolution,
+                    shipping_method=shipping_method,
+                )
+                
+                logger.info(f"Return created successfully: {result}")
+                
+                confirmation = {
+                    "id": result.get("return_id", f"RET-{datetime.now().strftime('%Y%m%d%H%M%S')}"),
+                    "status": result.get("status", "pending"),
+                    "refund_amount": result.get("refund_amount", 0),
+                }
+            except Exception as e:
+                logger.error(f"Error creating return: {e}")
+                # Fallback to display-only confirmation if save fails
+                confirmation = {
+                    "id": f"RET-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                    "status": "pending",
+                    "error": str(e),
+                }
+            
             widget = build_confirmation_widget(confirmation, thread.id)
             async for event in stream_widget(thread, widget):
                 yield event
@@ -684,8 +778,9 @@ class RetailChatKitServer(BaseChatKitServer):
         # Check for returnable items widget
         if getattr(agent_context, '_show_returnable_items_widget', False):
             items_data = getattr(agent_context, '_returnable_items_data', [])
+            customer_id = getattr(agent_context, '_current_customer_id', '')
             if items_data:
-                widget = build_returnable_items_widget(items_data, thread_id)
+                widget = build_returnable_items_widget(items_data, thread_id, customer_id)
                 logger.info(f"Streaming returnable items widget with {len(items_data)} orders")
                 async for event in stream_widget(thread, widget):
                     yield event

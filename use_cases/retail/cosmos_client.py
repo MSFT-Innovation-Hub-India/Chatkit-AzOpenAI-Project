@@ -92,9 +92,12 @@ class RetailCosmosClient:
     def search_customers(self, search_term: str) -> List[Dict[str, Any]]:
         """Search customers by name, email, or phone."""
         container = self._get_container("customers")
+        # Handle both combined "name" field and separate "first_name"/"last_name" fields
         query = """
             SELECT * FROM c 
             WHERE CONTAINS(LOWER(c.name), LOWER(@term))
+               OR CONTAINS(LOWER(c.first_name), LOWER(@term))
+               OR CONTAINS(LOWER(c.last_name), LOWER(@term))
                OR CONTAINS(LOWER(c.email), LOWER(@term))
                OR CONTAINS(c.phone, @term)
         """

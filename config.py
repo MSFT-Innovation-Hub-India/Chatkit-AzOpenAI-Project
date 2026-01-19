@@ -23,9 +23,9 @@ class Settings(BaseSettings):
         description="Azure OpenAI deployment name"
     )
     azure_openai_api_version: str = Field(
-        default="2025-01-01-preview",
+        default="2025-03-01-preview",
         alias="AZURE_OPENAI_API_VERSION",
-        description="Azure OpenAI API version"
+        description="Azure OpenAI API version (requires 2025-03-01-preview or later for Responses API)"
     )
     
     # Application Configuration
