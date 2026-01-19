@@ -9,7 +9,34 @@ interface Branding {
   logoUrl: string;
   primaryColor: string;
   faviconUrl: string;
+  prompts?: { label: string; prompt: string }[];
+  howToUse?: string[];
+  features?: string[];
 }
+
+// Default prompts for Todo (fallback)
+const defaultPrompts = [
+  { label: '📋 Show my todos', prompt: 'Show me my todos' },
+  { label: '🛒 Add buy groceries', prompt: 'Add buy groceries to my todo list' },
+  { label: '📝 Add multiple tasks', prompt: 'Add three tasks: call mom, finish report, and exercise' },
+  { label: '❓ What can you do?', prompt: 'What can you help me with?' },
+];
+
+const defaultHowToUse = [
+  '💬 Ask me to add tasks to your todo list',
+  '📋 Say "show my todos" to see the interactive widget',
+  '✅ Click checkboxes or buttons to manage tasks',
+  '🗑️ Delete tasks you no longer need',
+];
+
+const defaultFeatures = [
+  '🎨 Interactive widget UI',
+  '📝 Form inputs for adding todos',
+  '☑️ Checkbox to toggle completion',
+  '🔘 Action buttons (complete, delete)',
+  '💾 Persistent storage',
+  '☁️ Azure OpenAI powered',
+];
 
 // Helper to adjust color brightness
 function adjustColor(color: string, amount: number): string {
@@ -39,15 +66,10 @@ function App() {
       url: '/chatkit',
       domainKey: 'localhost', // Local development
     },
-    // Start screen customization
+    // Start screen customization - use branding prompts or defaults
     startScreen: {
       greeting: branding?.tagline || 'Your AI-powered task management assistant',
-      prompts: [
-        { label: '📋 Show my todos', prompt: 'Show me my todos' },
-        { label: '🛒 Add buy groceries', prompt: 'Add buy groceries to my todo list' },
-        { label: '📝 Add multiple tasks', prompt: 'Add three tasks: call mom, finish report, and exercise' },
-        { label: '❓ What can you do?', prompt: 'What can you help me with?' },
-      ],
+      prompts: branding?.prompts || defaultPrompts,
     },
     // Header configuration
     header: {
@@ -57,7 +79,9 @@ function App() {
     },
     // Composer configuration
     composer: {
-      placeholder: "Try: 'Show me my todos' to see interactive widgets...",
+      placeholder: branding?.prompts 
+        ? "Type your message or click a prompt to start..."
+        : "Try: 'Show me my todos' to see interactive widgets...",
     },
   });
 
@@ -90,22 +114,41 @@ function App() {
           <section>
             <h2>📖 How to Use</h2>
             <ul>
-              <li>💬 Ask me to add tasks to your todo list</li>
-              <li>📋 Say "show my todos" to see the interactive widget</li>
-              <li>✅ Click checkboxes or buttons to manage tasks</li>
-              <li>🗑️ Delete tasks you no longer need</li>
+              {(branding?.howToUse || defaultHowToUse).map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
             </ul>
+          </section>
+
+          <section>
+            <h2>💡 Try These Prompts</h2>
+            <div className="prompt-buttons">
+              {(branding?.prompts || defaultPrompts).map((p, index) => (
+                <button 
+                  key={index} 
+                  className="prompt-button"
+                  onClick={() => {
+                    // Find the composer input and set the value
+                    const input = document.querySelector('.chatkit-widget textarea, .chatkit-widget input[type="text"]') as HTMLInputElement | HTMLTextAreaElement;
+                    if (input) {
+                      input.value = p.prompt;
+                      input.dispatchEvent(new Event('input', { bubbles: true }));
+                      input.focus();
+                    }
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </section>
 
           <section>
             <h2>✨ Features</h2>
             <ul>
-              <li>🎨 Official ChatKit React UI</li>
-              <li>📝 Interactive widget forms</li>
-              <li>☑️ Checkbox to toggle completion</li>
-              <li>🔘 Action buttons (complete, delete)</li>
-              <li>💾 Persistent storage</li>
-              <li>☁️ Azure OpenAI powered</li>
+              {(branding?.features || defaultFeatures).map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
             </ul>
           </section>
         </aside>
