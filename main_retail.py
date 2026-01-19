@@ -20,6 +20,8 @@ from config import settings
 # Import the retail use case ChatKit server and Cosmos DB store
 from use_cases.retail import RetailChatKitServer
 from use_cases.retail.cosmos_store import CosmosDBStore
+from use_cases.retail.cosmos_client import get_retail_client
+from azure_client import client_manager
 
 # Configure logging
 logging.basicConfig(
@@ -27,6 +29,12 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Reduce Azure SDK logging verbosity
+logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
+logging.getLogger("azure.core").setLevel(logging.WARNING)
+logging.getLogger("azure.identity").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Global instances
 data_store: Optional[CosmosDBStore] = None
@@ -49,6 +57,16 @@ async def lifespan(app: FastAPI):
         items_container="ChatKit_Items",
     )
     logger.info("Cosmos DB store initialized for thread persistence")
+    
+    # Eager-load the retail Cosmos client at startup to avoid 5s delay on first request
+    logger.info("Pre-initializing retail Cosmos DB client...")
+    _ = get_retail_client()
+    logger.info("Retail Cosmos DB client ready")
+    
+    # Pre-initialize the Azure OpenAI client to avoid delay on first request
+    logger.info("Pre-initializing Azure OpenAI client...")
+    await client_manager.get_client()
+    logger.info("Azure OpenAI client ready")
     
     # Initialize ChatKit server with Cosmos DB store
     server = RetailChatKitServer(data_store)
